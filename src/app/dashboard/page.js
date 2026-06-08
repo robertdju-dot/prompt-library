@@ -199,6 +199,17 @@ function UserDashboardContent() {
   const [adminPowerPrice, setAdminPowerPrice] = useState(15);
   const [adminPowerLimit, setAdminPowerLimit] = useState(3000);
 
+  // Admin CSV Import States
+  const [isImporting, setIsImporting] = useState(false);
+  const [importFeedback, setImportFeedback] = useState("");
+  const [selectedCsvFile, setSelectedCsvFile] = useState(null);
+
+  // Admin Category Management States
+  const [categories, setCategories] = useState(['Content', 'Development', 'Business', 'Design', 'AI Strategy']);
+  const [isLoadingCategories, setIsLoadingCategories] = useState(false);
+  const [editingCategory, setEditingCategory] = useState(null);
+  const [categoryInput, setCategoryInput] = useState("");
+
   // New Stateful Tabs States
   const [collections, setCollections] = useState([]);
   const [activeCollectionId, setActiveCollectionId] = useState(null);
@@ -431,6 +442,42 @@ function UserDashboardContent() {
     }
     document.documentElement.classList.toggle("dark", theme === "dark");
   };
+
+  // Fetch prompt categories from Firestore & auto-seed if empty
+  useEffect(() => {
+    const fetchCategories = async () => {
+      setIsLoadingCategories(true);
+      try {
+        const querySnapshot = await getDocs(collection(db, "categories"));
+        if (querySnapshot.empty) {
+          const defaults = ['Content', 'Development', 'Business', 'Design', 'AI Strategy'];
+          const seeded = [];
+          for (const catName of defaults) {
+            const docRef = doc(db, 'categories', catName);
+            await setDoc(docRef, { name: catName, createdTimestamp: Date.now() });
+            seeded.push(catName);
+          }
+          setCategories(seeded);
+        } else {
+          const docs = [];
+          querySnapshot.forEach((docSnap) => {
+            const data = docSnap.data();
+            docs.push({ id: docSnap.id, name: data.name || docSnap.id, createdTimestamp: data.createdTimestamp || 0 });
+          });
+          docs.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+          setCategories(docs.map(d => d.name));
+        }
+      } catch (error) {
+        console.error("Failed to load categories from Firestore:", error);
+      } finally {
+        setIsLoadingCategories(false);
+      }
+    };
+
+    if (currentUser) {
+      fetchCategories();
+    }
+  }, [currentUser]);
 
   // Fetch user collections from Firestore when user changes
   useEffect(() => {
@@ -914,7 +961,7 @@ function UserDashboardContent() {
   const openAddModal = () => {
     setFormTitle('');
     setFormSubtitle('');
-    setFormCategory('Content');
+    setFormCategory(categories[0] || 'Content');
     setFormTags('');
     setFormAccess('Basic');
     setFormTemplate('');
@@ -969,6 +1016,297 @@ function UserDashboardContent() {
       setPrompts([{ id: `local-${Date.now()}`, ...newPromptData }, ...prompts]);
       setIsAddModalOpen(false);
     }
+  };
+
+  // Client-side RFC 4180-compliant CSV parser
+  const parseCSV = (text) => {
+    const lines = [];
+    let row = [""];
+    let inQuotes = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      const nextChar = text[i + 1];
+
+      if (inQuotes) {
+        if (char === '"') {
+          if (nextChar === '"') {
+            row[row.length - 1] += '"';
+            i++;
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          row[row.length - 1] += char;
+        }
+      } else {
+        if (char === '"') {
+          inQuotes = true;
+        } else if (char === ',') {
+          row.push("");
+        } else if (char === '\r' || char === '\n') {
+          if (char === '\r' && nextChar === '\n') {
+            i++;
+          }
+          lines.push(row);
+          row = [""];
+        } else {
+          row[row.length - 1] += char;
+        }
+      }
+    }
+    if (row.length > 1 || row[0] !== "") {
+      lines.push(row);
+    }
+    return lines;
+  };
+
+  // Handles selecting/changing a CSV file
+  const handleCsvFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setSelectedCsvFile(file);
+    }
+  };
+
+  // Handles parsing and importing prompts from the selected CSV file
+  const handleProceedCsvUpload = async () => {
+    if (!selectedCsvFile) return;
+
+    setIsImporting(true);
+    setImportFeedback("Reading file...");
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target.result;
+        const rows = parseCSV(text);
+        if (rows.length < 2) {
+          triggerToast("CSV file must contain a header row and at least one data row.");
+          setIsImporting(false);
+          setImportFeedback("");
+          return;
+        }
+
+        const headers = rows[0].map(h => h.trim().toLowerCase());
+        const dataRows = rows.slice(1);
+
+        // Find column indices
+        const titleIndex = headers.indexOf('title');
+        const templateIndex = headers.indexOf('template') !== -1 ? headers.indexOf('template') : 
+                              (headers.indexOf('content') !== -1 ? headers.indexOf('content') : headers.indexOf('prompt'));
+        const subtitleIndex = headers.indexOf('subtitle') !== -1 ? headers.indexOf('subtitle') : headers.indexOf('description');
+        const categoryIndex = headers.indexOf('category');
+        const tagsIndex = headers.indexOf('tags');
+        const accessIndex = headers.indexOf('access');
+        const isSharedIndex = headers.indexOf('isshared');
+        const collectionIdIndex = headers.indexOf('collectionid');
+
+        if (titleIndex === -1 || templateIndex === -1) {
+          triggerToast("CSV must contain 'title' and 'template' (or 'content' / 'prompt') columns.");
+          setIsImporting(false);
+          setImportFeedback("");
+          return;
+        }
+
+        let successCount = 0;
+        let skipCount = 0;
+        const importedPrompts = [];
+
+        setImportFeedback(`Parsing ${dataRows.length} rows...`);
+
+        for (let i = 0; i < dataRows.length; i++) {
+          const row = dataRows[i];
+          if (row.length === 0 || (row.length === 1 && !row[0].trim())) {
+            continue;
+          }
+
+          const title = row[titleIndex]?.trim();
+          const template = row[templateIndex]?.trim();
+
+          if (!title || !template) {
+            skipCount++;
+            continue;
+          }
+
+          const subtitle = subtitleIndex !== -1 ? (row[subtitleIndex]?.trim() || "Custom prompt structure") : "Custom prompt structure";
+          const category = categoryIndex !== -1 ? (row[categoryIndex]?.trim() || "Content") : "Content";
+          const tagsString = tagsIndex !== -1 ? row[tagsIndex]?.trim() : "";
+          const tags = tagsString 
+            ? tagsString.split(/[;,]/).map(t => t.trim()).filter(t => t.length > 0)
+            : [];
+          const access = accessIndex !== -1 ? (row[accessIndex]?.trim() || "Basic") : "Basic";
+          const isSharedVal = isSharedIndex !== -1 ? row[isSharedIndex]?.trim().toLowerCase() : "false";
+          const isShared = isSharedVal === 'true' || isSharedVal === 'yes' || isSharedVal === '1';
+          const collectionId = collectionIdIndex !== -1 ? (row[collectionIdIndex]?.trim() || null) : null;
+
+          const promptData = {
+            title,
+            subtitle,
+            description: subtitle, // compat
+            category,
+            tags,
+            access,
+            isMemberOnly: access === 'Premium', // compat
+            createdDate: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+            createdAt: new Date().toISOString(), // compat
+            template,
+            content: template, // compat
+            createdTimestamp: Date.now() + i,
+            createdBy: currentUser ? currentUser.uid : 'system',
+            isShared,
+            collectionId: collectionId || null
+          };
+
+          setImportFeedback(`Uploading ${i + 1}/${dataRows.length}: "${title}"...`);
+
+          try {
+            const docRef = await addDoc(collection(db, "prompts"), promptData);
+            importedPrompts.push({ id: docRef.id, ...promptData });
+            successCount++;
+          } catch (err) {
+            console.error(`Failed to upload row ${i + 1}:`, err);
+            skipCount++;
+          }
+        }
+
+        if (importedPrompts.length > 0) {
+          setPrompts(prev => [...importedPrompts, ...prev]);
+        }
+
+        const summaryLog = {
+          timestamp: new Date().toISOString(),
+          level: "SUCCESS",
+          message: `Admin bulk imported ${successCount} prompts from CSV (skipped ${skipCount} invalid rows).`
+        };
+        setAdminLogs(prev => [summaryLog, ...prev]);
+        triggerToast(`Import complete! ${successCount} prompts added, ${skipCount} skipped.`);
+        setSelectedCsvFile(null); // Clear selected file on success
+
+      } catch (err) {
+        console.error("Failed to parse CSV file:", err);
+        triggerToast("Failed to parse CSV file. Ensure it is a valid CSV format.");
+      } finally {
+        setIsImporting(false);
+        setImportFeedback("");
+      }
+    };
+
+    reader.readAsText(selectedCsvFile);
+  };
+
+  // Handles adding a new category
+  const handleAddCategory = async (e) => {
+    e.preventDefault();
+    const catName = categoryInput.trim();
+    if (!catName) return;
+
+    if (categories.includes(catName)) {
+      triggerToast("Category already exists.");
+      return;
+    }
+
+    try {
+      const docRef = doc(db, "categories", catName);
+      await setDoc(docRef, { name: catName, createdTimestamp: Date.now() });
+      setCategories(prev => [...prev, catName]);
+      setCategoryInput("");
+      triggerToast(`Category "${catName}" added successfully.`);
+      
+      const newLog = {
+        timestamp: new Date().toISOString(),
+        level: "SUCCESS",
+        message: `Admin added category "${catName}".`
+      };
+      setAdminLogs(prev => [newLog, ...prev]);
+    } catch (error) {
+      console.error("Failed to add category:", error);
+      triggerToast("Failed to write to database.");
+    }
+  };
+
+  // Handles renaming a category and cascading changes to prompts
+  const handleRenameCategory = async (e) => {
+    e.preventDefault();
+    const newName = categoryInput.trim();
+    const oldName = editingCategory;
+    if (!newName || !oldName) return;
+
+    if (newName === oldName) {
+      setEditingCategory(null);
+      setCategoryInput("");
+      return;
+    }
+
+    if (categories.includes(newName)) {
+      triggerToast("Category name already exists.");
+      return;
+    }
+
+    try {
+      const oldDocRef = doc(db, "categories", oldName);
+      const newDocRef = doc(db, "categories", newName);
+      
+      await setDoc(newDocRef, { name: newName, createdTimestamp: Date.now() });
+      await deleteDoc(oldDocRef);
+
+      const promptsToUpdate = prompts.filter(p => p.category === oldName);
+      for (const p of promptsToUpdate) {
+        const promptDocRef = doc(db, "prompts", p.id);
+        await updateDoc(promptDocRef, { category: newName });
+      }
+
+      setCategories(prev => prev.map(c => c === oldName ? newName : c));
+      setPrompts(prev => prev.map(p => p.category === oldName ? { ...p, category: newName } : p));
+      
+      setEditingCategory(null);
+      setCategoryInput("");
+      triggerToast(`Renamed category "${oldName}" to "${newName}".`);
+
+      const newLog = {
+        timestamp: new Date().toISOString(),
+        level: "SUCCESS",
+        message: `Admin renamed category "${oldName}" to "${newName}" (cascaded to ${promptsToUpdate.length} prompts).`
+      };
+      setAdminLogs(prev => [newLog, ...prev]);
+    } catch (error) {
+      console.error("Failed to rename category:", error);
+      triggerToast("Failed to update database.");
+    }
+  };
+
+  // Handles deleting a category
+  const handleDeleteCategory = async (catName) => {
+    if (!confirm(`Are you sure you want to delete the category "${catName}"? This will not delete the prompts inside it, but they will belong to a deleted category.`)) {
+      return;
+    }
+
+    try {
+      const docRef = doc(db, "categories", catName);
+      await deleteDoc(docRef);
+      setCategories(prev => prev.filter(c => c !== catName));
+      triggerToast(`Category "${catName}" deleted.`);
+
+      const newLog = {
+        timestamp: new Date().toISOString(),
+        level: "WARN",
+        message: `Admin deleted category "${catName}".`
+      };
+      setAdminLogs(prev => [newLog, ...prev]);
+    } catch (error) {
+      console.error("Failed to delete category:", error);
+      triggerToast("Failed to update database.");
+    }
+  };
+
+  const startEditCategory = (catName) => {
+    setEditingCategory(catName);
+    setCategoryInput(catName);
+  };
+
+  const cancelEditCategory = () => {
+    setEditingCategory(null);
+    setCategoryInput("");
   };
 
   // Open modal for editing a prompt
@@ -1467,85 +1805,216 @@ function UserDashboardContent() {
             </div>
           </div>
 
-          <div className="lg:col-span-5 bg-surface-container-lowest border border-outline-variant/40 rounded-xl overflow-hidden shadow-sm flex flex-col justify-between p-lg min-h-[400px]">
-            <form onSubmit={handleSaveTierConfig} className="space-y-md flex flex-col justify-between h-full">
-              <div>
-                <h3 className="text-title-md font-bold text-on-surface flex items-center gap-xs mb-sm">
-                  <span className="material-symbols-outlined text-primary text-[20px]">payments</span>
-                  Tier & Limits Config
-                </h3>
-                <p className="text-label-md text-on-surface-variant font-medium mb-md">Configure global limits and plan pricing synced directly to billing.</p>
-                
-                <div className="space-y-sm">
-                  <div className="space-y-xs">
-                    <label className="text-label-sm font-bold text-on-surface-variant uppercase tracking-wider text-[11px] block">Free Price ($ / month)</label>
-                    <input 
-                      type="number"
-                      value={adminFreePrice}
-                      onChange={(e) => setAdminFreePrice(e.target.value)}
-                      className="w-full bg-surface border border-outline-variant rounded-xl px-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-semibold"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-xs">
-                    <label className="text-label-sm font-bold text-on-surface-variant uppercase tracking-wider text-[11px] block">Free Limit (max saved prompts)</label>
-                    <input 
-                      type="number"
-                      value={adminFreeLimit}
-                      onChange={(e) => setAdminFreeLimit(e.target.value)}
-                      className="w-full bg-surface border border-outline-variant rounded-xl px-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-semibold"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-xs">
-                    <label className="text-label-sm font-bold text-on-surface-variant uppercase tracking-wider text-[11px] block">Pro Plan Price ($ / month)</label>
-                    <input 
-                      type="number"
-                      value={adminProPrice}
-                      onChange={(e) => setAdminProPrice(e.target.value)}
-                      className="w-full bg-surface border border-outline-variant rounded-xl px-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-semibold"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-xs">
-                    <label className="text-label-sm font-bold text-on-surface-variant uppercase tracking-wider text-[11px] block">Pro Limit (max saved prompts)</label>
-                    <input 
-                      type="number"
-                      value={adminProLimit}
-                      onChange={(e) => setAdminProLimit(e.target.value)}
-                      className="w-full bg-surface border border-outline-variant rounded-xl px-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-semibold"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-xs">
-                    <label className="text-label-sm font-bold text-on-surface-variant uppercase tracking-wider text-[11px] block">Power User Price ($ / month)</label>
-                    <input 
-                      type="number"
-                      value={adminPowerPrice}
-                      onChange={(e) => setAdminPowerPrice(e.target.value)}
-                      className="w-full bg-surface border border-outline-variant rounded-xl px-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-semibold"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-xs">
-                    <label className="text-label-sm font-bold text-on-surface-variant uppercase tracking-wider text-[11px] block">Power User Limit (max saved prompts)</label>
-                    <input 
-                      type="number"
-                      value={adminPowerLimit}
-                      onChange={(e) => setAdminPowerLimit(e.target.value)}
-                      className="w-full bg-surface border border-outline-variant rounded-xl px-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-semibold"
-                      required
-                    />
+          <div className="lg:col-span-5 flex flex-col gap-lg items-stretch">
+            <div className="bg-surface-container-lowest border border-outline-variant/40 rounded-xl p-lg shadow-sm">
+              <form onSubmit={handleSaveTierConfig} className="space-y-md flex flex-col justify-between h-full">
+                <div>
+                  <h3 className="text-title-md font-bold text-on-surface flex items-center gap-xs mb-sm">
+                    <span className="material-symbols-outlined text-primary text-[20px]">payments</span>
+                    Tier & Limits Config
+                  </h3>
+                  <p className="text-label-md text-on-surface-variant font-medium mb-md">Configure global limits and plan pricing synced directly to billing.</p>
+                  
+                  <div className="space-y-sm">
+                    <div className="space-y-xs">
+                      <label className="text-label-sm font-bold text-on-surface-variant uppercase tracking-wider text-[11px] block">Free Price ($ / month)</label>
+                      <input 
+                        type="number"
+                        value={adminFreePrice}
+                        onChange={(e) => setAdminFreePrice(e.target.value)}
+                        className="w-full bg-surface border border-outline-variant rounded-xl px-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-semibold"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-xs">
+                      <label className="text-label-sm font-bold text-on-surface-variant uppercase tracking-wider text-[11px] block">Free Limit (max saved prompts)</label>
+                      <input 
+                        type="number"
+                        value={adminFreeLimit}
+                        onChange={(e) => setAdminFreeLimit(e.target.value)}
+                        className="w-full bg-surface border border-outline-variant rounded-xl px-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-semibold"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-xs">
+                      <label className="text-label-sm font-bold text-on-surface-variant uppercase tracking-wider text-[11px] block">Pro Plan Price ($ / month)</label>
+                      <input 
+                        type="number"
+                        value={adminProPrice}
+                        onChange={(e) => setAdminProPrice(e.target.value)}
+                        className="w-full bg-surface border border-outline-variant rounded-xl px-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-semibold"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-xs">
+                      <label className="text-label-sm font-bold text-on-surface-variant uppercase tracking-wider text-[11px] block">Pro Limit (max saved prompts)</label>
+                      <input 
+                        type="number"
+                        value={adminProLimit}
+                        onChange={(e) => setAdminProLimit(e.target.value)}
+                        className="w-full bg-surface border border-outline-variant rounded-xl px-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-semibold"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-xs">
+                      <label className="text-label-sm font-bold text-on-surface-variant uppercase tracking-wider text-[11px] block">Power User Price ($ / month)</label>
+                      <input 
+                        type="number"
+                        value={adminPowerPrice}
+                        onChange={(e) => setAdminPowerPrice(e.target.value)}
+                        className="w-full bg-surface border border-outline-variant rounded-xl px-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-semibold"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-xs">
+                      <label className="text-label-sm font-bold text-on-surface-variant uppercase tracking-wider text-[11px] block">Power User Limit (max saved prompts)</label>
+                      <input 
+                        type="number"
+                        value={adminPowerLimit}
+                        onChange={(e) => setAdminPowerLimit(e.target.value)}
+                        className="w-full bg-surface border border-outline-variant rounded-xl px-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-semibold"
+                        required
+                      />
+                    </div>
                   </div>
                 </div>
+                <button 
+                  type="submit"
+                  className="mt-lg w-full bg-primary text-on-primary py-sm rounded-xl font-semibold hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer shadow-sm text-body-md"
+                >
+                  Save Configuration
+                </button>
+              </form>
+            </div>
+
+            <div className="bg-surface-container-lowest border border-outline-variant/40 rounded-xl p-lg shadow-sm">
+              <h3 className="text-title-md font-bold text-on-surface flex items-center gap-xs mb-sm">
+                <span className="material-symbols-outlined text-primary text-[20px]">file_upload</span>
+                Bulk Import Prompts (CSV)
+              </h3>
+              <p className="text-label-md text-on-surface-variant font-medium mb-md">Import multiple prompts at once from a CSV file. The file must include `title` and `template` (or `content` / `prompt`) headers.</p>
+              
+              <div className="space-y-sm">
+                {selectedCsvFile ? (
+                  <div className="border border-outline-variant/60 rounded-xl p-md bg-surface flex flex-col gap-md">
+                    <div className="flex items-center gap-sm">
+                      <span className="material-symbols-outlined text-primary text-[32px]">description</span>
+                      <div className="flex-grow min-w-0">
+                        <div className="text-body-md font-bold text-on-surface truncate">{selectedCsvFile.name}</div>
+                        <div className="text-label-sm text-on-surface-variant/80 font-medium font-mono">{Math.round(selectedCsvFile.size / 102.4) / 10} KB</div>
+                      </div>
+                    </div>
+                    {isImporting && (
+                      <div className="text-primary font-semibold text-xs flex items-center gap-xs animate-pulse justify-center">
+                        <span className="w-4 h-4 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></span>
+                        <span className="text-xs break-all text-center">{importFeedback}</span>
+                      </div>
+                    )}
+                    <div className="flex gap-sm">
+                      <button 
+                        type="button"
+                        disabled={isImporting}
+                        onClick={handleProceedCsvUpload}
+                        className="flex-grow bg-primary text-on-primary py-2 rounded-lg text-label-md font-semibold hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer shadow-sm text-center disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Import Prompts
+                      </button>
+                      <button 
+                        type="button"
+                        disabled={isImporting}
+                        onClick={() => setSelectedCsvFile(null)}
+                        className="border border-outline-variant text-on-surface px-md py-2 rounded-lg text-label-md font-semibold hover:bg-surface-container-high transition-all cursor-pointer text-center disabled:opacity-50"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="border-2 border-dashed border-outline-variant/60 rounded-xl p-lg text-center flex flex-col items-center justify-center gap-sm bg-surface hover:bg-surface-container-low/30 transition-all relative">
+                    <span className="material-symbols-outlined text-outline text-[40px]">description</span>
+                    <div className="text-body-md font-semibold text-on-surface">
+                      Select or drag CSV file
+                    </div>
+                    <p className="text-label-sm text-on-surface-variant/80">Supports headers: title, template/content/prompt, subtitle/description, category, tags, access, isShared</p>
+                    <input 
+                      type="file" 
+                      accept=".csv"
+                      disabled={isImporting}
+                      onChange={handleCsvFileChange}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                    />
+                  </div>
+                )}
               </div>
-              <button 
-                type="submit"
-                className="mt-lg w-full bg-primary text-on-primary py-sm rounded-xl font-semibold hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer shadow-sm text-body-md"
-              >
-                Save Configuration
-              </button>
-            </form>
+            </div>
+
+            <div className="bg-surface-container-lowest border border-outline-variant/40 rounded-xl p-lg shadow-sm">
+              <h3 className="text-title-md font-bold text-on-surface flex items-center gap-xs mb-sm">
+                <span className="material-symbols-outlined text-primary text-[20px]">category</span>
+                Category Management
+              </h3>
+              <p className="text-label-md text-on-surface-variant font-medium mb-md">Add, edit, or delete prompt categories. Renaming will automatically update all existing prompts.</p>
+              
+              <form onSubmit={editingCategory ? handleRenameCategory : handleAddCategory} className="flex gap-sm mb-md">
+                <input 
+                  type="text"
+                  value={categoryInput}
+                  onChange={(e) => setCategoryInput(e.target.value)}
+                  placeholder={editingCategory ? "Enter new category name..." : "Add new category..."}
+                  className="flex-1 bg-surface border border-outline-variant rounded-xl px-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-semibold"
+                  required
+                />
+                <button 
+                  type="submit"
+                  className="bg-primary text-on-primary px-md py-sm rounded-xl font-semibold hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer shadow-sm text-body-md"
+                >
+                  {editingCategory ? "Rename" : "Add"}
+                </button>
+                {editingCategory && (
+                  <button 
+                    type="button"
+                    onClick={cancelEditCategory}
+                    className="border border-outline-variant text-on-surface px-md py-sm rounded-xl font-semibold hover:bg-surface-container-high transition-all cursor-pointer text-body-md"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </form>
+
+              <div className="space-y-sm max-h-[200px] overflow-y-auto pr-xs">
+                {isLoadingCategories ? (
+                  <div className="text-center py-md text-on-surface-variant font-medium animate-pulse text-body-md">
+                    Loading categories...
+                  </div>
+                ) : categories.length === 0 ? (
+                  <div className="text-center py-md text-on-surface-variant font-medium text-body-md">
+                    No categories defined.
+                  </div>
+                ) : (
+                  categories.map(cat => (
+                    <div key={cat} className="flex justify-between items-center p-sm bg-surface-container-low/40 border border-outline-variant/20 rounded-xl hover:bg-surface-container-low/80 transition-colors">
+                      <span className="text-body-md font-semibold text-on-surface pl-xs">{cat}</span>
+                      <div className="flex gap-xs">
+                        <button 
+                          onClick={() => startEditCategory(cat)}
+                          className="p-1 hover:text-primary hover:bg-surface-container-high rounded transition-all cursor-pointer"
+                          title="Rename Category"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">edit</span>
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteCategory(cat)}
+                          className="p-1 hover:text-error hover:bg-error-container/20 rounded transition-all cursor-pointer"
+                          title="Delete Category"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">delete</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1906,11 +2375,9 @@ function UserDashboardContent() {
               className="bg-surface text-body-md border border-outline-variant rounded-xl px-md py-2 outline-none cursor-pointer"
             >
               <option value="All">All Categories</option>
-              <option value="Content">Content</option>
-              <option value="Development">Development</option>
-              <option value="Business">Business</option>
-              <option value="Design">Design</option>
-              <option value="AI Strategy">AI Strategy</option>
+              {categories.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
             </select>
 
             <select 
@@ -3199,11 +3666,9 @@ function UserDashboardContent() {
                       onChange={(e) => setFormCategory(e.target.value)}
                       className="w-full bg-surface text-body-md border border-outline-variant rounded-xl px-md py-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all cursor-pointer"
                     >
-                      <option value="Content">Content</option>
-                      <option value="Development">Development</option>
-                      <option value="Business">Business</option>
-                      <option value="Design">Design</option>
-                      <option value="AI Strategy">AI Strategy</option>
+                      {categories.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
                     </select>
                   </div>
                   <div className="space-y-xs">
@@ -3336,11 +3801,9 @@ function UserDashboardContent() {
                       onChange={(e) => setFormCategory(e.target.value)}
                       className="w-full bg-surface text-body-md border border-outline-variant rounded-xl px-md py-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all cursor-pointer"
                     >
-                      <option value="Content">Content</option>
-                      <option value="Development">Development</option>
-                      <option value="Business">Business</option>
-                      <option value="Design">Design</option>
-                      <option value="AI Strategy">AI Strategy</option>
+                      {categories.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
                     </select>
                   </div>
                   <div className="space-y-xs">
