@@ -54,6 +54,7 @@ export async function GET(request) {
       }
 
       const userId = session.client_reference_id;
+      // Extract plan name from session query string or query line items
       let planName = searchParams.get('plan') || 'Pro';
       
       try {
@@ -74,6 +75,7 @@ export async function GET(request) {
         return NextResponse.json({ error: 'Missing client_reference_id in checkout session' }, { status: 400 });
       }
 
+      // Update user plan in Firestore database
       const userDocRef = doc(db, 'users', userId);
       await updateDoc(userDocRef, { tier: planName });
 

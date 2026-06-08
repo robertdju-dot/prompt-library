@@ -26,7 +26,7 @@ export async function POST(request) {
               currency: 'usd',
               product_data: {
                 name: `${planName} Plan Subscription`,
-                description: `Prompt Library ${planName} Access`,
+                description: `Online Prompt Library ${planName} Access`,
               },
               unit_amount: Math.round(Number(price) * 100),
               recurring: {

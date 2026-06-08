@@ -3,8 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { auth } from '../../lib/firebase';
+import { db, auth } from '../../lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 
 // FAQs data categorized
 const FAQ_CATEGORIES = [
@@ -15,12 +16,12 @@ const FAQ_CATEGORIES = [
   { id: 'developer', name: 'API & Developer Keys', icon: 'code' }
 ];
 
-const FAQ_ITEMS = [
+const getFaqItems = (config) => [
   {
     id: 'faq-1',
     category: 'general',
-    question: 'What is Prompt Library?',
-    answer: 'Prompt Library is a professional workspace designed for AI engineers, writers, and power users. It helps you build, organize, tag, and reuse your AI prompt templates. By using dynamic variables, you can test and compile prompts on the fly before copying or exporting them.'
+    question: 'What is Online Prompt Library?',
+    answer: 'Online Prompt Library is a professional workspace designed for AI engineers, writers, and power users. It helps you build, organize, tag, and reuse your AI prompt templates. By using dynamic variables, you can test and compile prompts on the fly before copying or exporting them.'
   },
   {
     id: 'faq-2',
@@ -44,7 +45,7 @@ const FAQ_ITEMS = [
     id: 'faq-5',
     category: 'billing',
     question: 'How do I upgrade my subscription plan limit?',
-    answer: 'Navigate to the "Billing" tab in your sidebar. We offer three tiers: Free (up to 50 prompts limit), Pro (up to 1,000 prompts), and Power User (up to 3,000 prompts and API/versions access). Clicking upgrade redirects you to a secure Stripe Checkout portal to complete your payment.'
+    answer: `Navigate to the "Billing" tab in your sidebar. We offer three tiers: Free (up to ${(config.freeLimit ?? 50).toLocaleString()} prompts limit), Pro (up to ${(config.proLimit ?? 1000).toLocaleString()} prompts), and Power User (up to ${(config.powerLimit ?? 3000).toLocaleString()} prompts and API/versions access). Clicking upgrade redirects you to a secure Stripe Checkout portal to complete your payment.`
   },
   {
     id: 'faq-6',
@@ -73,6 +74,27 @@ export default function SupportCenterPage() {
   const [currentUser, setCurrentUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [themeMode, setThemeMode] = useState('light');
+  const [tierConfig, setTierConfig] = useState({
+    freeLimit: 50,
+    proLimit: 1000,
+    powerLimit: 3000
+  });
+
+  // Fetch pricing config from Firestore settings/config
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const configDocRef = doc(db, 'settings', 'config');
+        const configSnap = await getDoc(configDocRef);
+        if (configSnap.exists()) {
+          setTierConfig(configSnap.data());
+        }
+      } catch (err) {
+        console.error('Error fetching dynamic pricing config for FAQ:', err);
+      }
+    };
+    fetchConfig();
+  }, []);
   
   // Search and filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -178,8 +200,9 @@ export default function SupportCenterPage() {
     }
   };
 
+  const faqItems = getFaqItems(tierConfig);
   // Filter FAQs based on search input and active category selection
-  const filteredFaqs = FAQ_ITEMS.filter(faq => {
+  const filteredFaqs = faqItems.filter(faq => {
     const matchesSearch = faq.question.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           faq.answer.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = activeCategory === 'all' || faq.category === activeCategory;
@@ -192,7 +215,7 @@ export default function SupportCenterPage() {
       <aside className="hidden md:flex flex-col h-screen w-64 left-0 top-0 fixed bg-surface-container-lowest border-r border-outline-variant/30 py-lg space-y-sm z-40">
         <div className="px-lg mb-xl">
           <Link href="/dashboard" className="flex items-center gap-xs">
-            <h1 className="text-headline-md font-bold text-primary tracking-tight">Prompt Library</h1>
+            <h1 className="text-headline-md font-bold text-primary tracking-tight">Online Prompt Library</h1>
           </Link>
           <p className="text-label-md font-medium text-on-surface-variant/70 mt-xs">Support Center Active</p>
         </div>
@@ -239,7 +262,7 @@ export default function SupportCenterPage() {
       <header className="bg-surface-container-lowest border-b border-outline-variant/30 py-md px-lg relative z-30">
         <div className="max-w-7xl mx-auto flex justify-between items-center h-12">
           <Link href="/" className="flex items-center gap-xs">
-            <span className="text-headline-md font-black text-primary tracking-tight">Prompt Library</span>
+            <span className="text-headline-md font-black text-primary tracking-tight">Online Prompt Library</span>
           </Link>
           <div className="flex gap-md">
             <Link href="/login" className="px-lg py-sm text-label-md font-bold text-primary hover:bg-primary/5 rounded-xl transition-all">
@@ -310,7 +333,7 @@ export default function SupportCenterPage() {
             <div className="space-y-sm relative z-10 max-w-2xl">
               <h2 className="text-headline-md font-extrabold text-on-surface">How can we assist you today?</h2>
               <p className="text-body-md text-on-surface-variant leading-relaxed">
-                Welcome to the Prompt Library Support Center. Explore our interactive FAQ directory to resolve general questions or submit a custom inquiry directly to our support staff.
+                Welcome to the Online Prompt Library Support Center. Explore our interactive FAQ directory to resolve general questions or submit a custom inquiry directly to our support staff.
               </p>
             </div>
             <div className="flex gap-sm relative z-10 shrink-0">
@@ -544,13 +567,13 @@ export default function SupportCenterPage() {
 
           {/* Footer details */}
           <footer className="w-full py-lg border-t border-outline-variant/30 flex flex-col md:flex-row justify-between items-center text-label-md text-on-surface-variant/80 font-medium shrink-0 bg-surface-container-lowest rounded-2xl px-lg shadow-sm">
-            <span>© 2026 Prompt Library Support Hub. All tickets are encrypted and tracked for service quality.</span>
+            <span>© 2026 Online Prompt Library Support Hub. All tickets are encrypted and tracked for service quality.</span>
             <div className="flex gap-md mt-sm md:mt-0">
               <Link href="/dashboard" className="hover:text-primary transition-colors">Workspace</Link>
               <span>&bull;</span>
-              <a href="#" className="hover:text-primary transition-colors">Privacy Statement</a>
+              <Link href="/privacy" className="hover:text-primary transition-colors">Privacy Statement</Link>
               <span>&bull;</span>
-              <a href="#" className="hover:text-primary transition-colors">Terms of Service</a>
+              <Link href="/terms" className="hover:text-primary transition-colors">Terms of Service</Link>
             </div>
           </footer>
 

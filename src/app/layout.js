@@ -14,7 +14,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata = {
-  title: "User Dashboard | Prompt Library SaaS Platform",
+  title: "User Dashboard | Online Prompt Library SaaS Platform",
   description: "A professional, elite SaaS workspace to build, organize, tag, and reuse your best AI prompts with dynamic variables.",
 };
 

@@ -200,11 +200,7 @@ function UserDashboardContent() {
   const [adminPowerLimit, setAdminPowerLimit] = useState(3000);
 
   // New Stateful Tabs States
-  const [collections, setCollections] = useState([
-    { id: 'marketing', name: 'Marketing Copy', icon: 'campaign', promptIds: [] },
-    { id: 'engineering', name: 'Code Assist & Git', icon: 'code', promptIds: [] },
-    { id: 'ai-agents', name: 'AI Strategy Agents', icon: 'smart_toy', promptIds: [] }
-  ]);
+  const [collections, setCollections] = useState([]);
   const [activeCollectionId, setActiveCollectionId] = useState(null);
   const [newCollectionName, setNewCollectionName] = useState("");
   const [newCollectionIcon, setNewCollectionIcon] = useState("folder");
@@ -457,14 +453,7 @@ function UserDashboardContent() {
             });
           }
         });
-        
-        // Baseline default collections
-        const defaults = [
-          { id: 'marketing', name: 'Marketing Copy', icon: 'campaign', promptIds: [] },
-          { id: 'engineering', name: 'Code Assist & Git', icon: 'code', promptIds: [] },
-          { id: 'ai-agents', name: 'AI Strategy Agents', icon: 'smart_toy', promptIds: [] }
-        ];
-        setCollections([...defaults, ...docs]);
+        setCollections(docs);
       } catch (error) {
         console.error("Failed to load collections from Firestore:", error);
         // If query fails or ordering/index is missing, fallback to query without order
@@ -486,12 +475,7 @@ function UserDashboardContent() {
             }
           });
           docs.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-          const defaults = [
-            { id: 'marketing', name: 'Marketing Copy', icon: 'campaign', promptIds: [] },
-            { id: 'engineering', name: 'Code Assist & Git', icon: 'code', promptIds: [] },
-            { id: 'ai-agents', name: 'AI Strategy Agents', icon: 'smart_toy', promptIds: [] }
-          ];
-          setCollections([...defaults, ...docs]);
+          setCollections(docs);
         } catch (innerErr) {
           console.error("Fallback load failed:", innerErr);
         }
@@ -1617,7 +1601,7 @@ function UserDashboardContent() {
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-md">
           <div>
             <h2 className="text-headline-lg font-bold text-on-surface">Welcome back, {profileName.split(' ')[0]}</h2>
-            <p className="text-body-md text-on-surface-variant mt-1">Here's what's happening with your prompt library today.</p>
+            <p className="text-body-md text-on-surface-variant mt-1">Here's what's happening with your online prompt library today.</p>
           </div>
           <button 
             onClick={handleCreatePromptClick}
@@ -1870,7 +1854,7 @@ function UserDashboardContent() {
           <div>
             <h2 className="text-headline-lg font-bold text-on-surface flex items-center gap-sm">
               <span className="material-symbols-outlined text-primary text-[32px]">folder_special</span>
-              Prompt Library Explorer
+              Online Prompt Library Explorer
             </h2>
             <p className="text-body-md text-on-surface-variant mt-1">Browse and search all your saved prompts, run them inside the playground, or edit structures.</p>
           </div>
@@ -2263,7 +2247,7 @@ function UserDashboardContent() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-lg items-stretch">
           {[
-            { name: 'Free', price: `$${tierConfig.freePrice}`, desc: `Basic prompt library storage`, features: [`Up to ${tierConfig.freeLimit} Prompts`, 'Basic Variables', 'Public Collections'] },
+            { name: 'Free', price: `$${tierConfig.freePrice}`, desc: `Basic online prompt library storage`, features: [`Up to ${tierConfig.freeLimit} Prompts`, 'Basic Variables', 'Public Collections'] },
             { name: 'Pro', price: `$${tierConfig.proPrice}`, desc: `Optimized professional workspace`, features: [`Up to ${tierConfig.proLimit} Prompts`, 'Advanced Variables', 'Private Collections'] },
             { name: 'Power User', price: `$${tierConfig.powerPrice}`, desc: `$${tierConfig.powerPrice}/month scaling tier`, features: [`Up to ${tierConfig.powerLimit} Prompts`, 'Version History Logs', 'API Workspace Access', 'Priority Support'] }
           ].map(plan => (
@@ -2368,8 +2352,10 @@ function UserDashboardContent() {
                 <span className="material-symbols-outlined text-on-surface-variant text-[36px]">receipt</span>
               </div>
               <div>
-                <p className="text-body-md font-bold text-on-surface-variant/80">No Invoices Yet</p>
-                <p className="text-label-sm text-on-surface-variant/50 mt-xs">Upgrade your subscription plan to start tracking records.</p>
+                <p className="text-title-sm font-bold text-on-surface">No billing records yet</p>
+                <p className="text-body-sm text-on-surface-variant mt-xs" style={{maxWidth: '360px', margin: '4px auto 0'}}>
+                  Your invoice history will appear here after your first subscription upgrade.
+                </p>
               </div>
             </div>
           ) : (
@@ -2377,31 +2363,25 @@ function UserDashboardContent() {
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-surface-container-low border-b border-outline-variant/20">
-                    <th className="px-lg py-sm text-label-xs font-bold text-on-surface-variant uppercase tracking-wider text-[10px]">Invoice ID</th>
-                    <th className="px-lg py-sm text-label-xs font-bold text-on-surface-variant uppercase tracking-wider text-[10px]">Billing Date</th>
-                    <th className="px-lg py-sm text-label-xs font-bold text-on-surface-variant uppercase tracking-wider text-[10px]">Upgrade Tier</th>
-                    <th className="px-lg py-sm text-label-xs font-bold text-on-surface-variant uppercase tracking-wider text-[10px]">Amount</th>
-                    <th className="px-lg py-sm text-label-xs font-bold text-on-surface-variant uppercase tracking-wider text-right text-[10px]">Status</th>
+                    <th className="px-lg py-md text-label-md font-bold text-on-surface-variant uppercase tracking-wider text-xs">Invoice ID</th>
+                    <th className="px-lg py-md text-label-md font-bold text-on-surface-variant uppercase tracking-wider text-xs">Date</th>
+                    <th className="px-lg py-md text-label-md font-bold text-on-surface-variant uppercase tracking-wider text-xs">Plan</th>
+                    <th className="px-lg py-md text-label-md font-bold text-on-surface-variant uppercase tracking-wider text-xs">Amount</th>
+                    <th className="px-lg py-md text-label-md font-bold text-on-surface-variant uppercase tracking-wider text-right text-xs">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-outline-variant/20">
-                  {invoices.map((inv) => {
-                    const statusClass = inv.status === 'Paid'
-                      ? 'bg-success-container/10 text-success border-success/20'
-                      : 'bg-error-container/10 text-error border-error/20';
-
+                  {invoices.map(inv => {
+                    const statusStyles = {
+                      'Paid':     'bg-emerald-500/10 text-emerald-600 border-emerald-500/25',
+                      'Pending':  'bg-amber-500/10  text-amber-600  border-amber-500/25',
+                      'Failed':   'bg-red-500/10    text-red-600    border-red-500/25',
+                      'Refunded': 'bg-blue-500/10   text-blue-600   border-blue-500/25',
+                    };
+                    const statusClass = statusStyles[inv.status] || 'bg-surface-container text-on-surface-variant border-outline-variant/30';
                     return (
-                      <tr key={inv.id} className="hover:bg-surface-container/10 transition-colors">
-                        <td className="px-lg py-md">
-                          <div className="flex flex-col">
-                            <span className="text-body-md font-bold text-on-surface">{inv.id}</span>
-                            {inv.sessionId && (
-                              <span className="text-label-xs text-on-surface-variant/70 font-mono mt-0.5" title={inv.sessionId}>
-                                ID: {inv.sessionId.substring(0, 15)}...
-                              </span>
-                            )}
-                          </div>
-                        </td>
+                      <tr key={inv.id} className="hover:bg-surface-container/30 transition-colors">
+                        <td className="px-lg py-md font-mono text-body-sm font-semibold text-on-surface tracking-tight">{inv.id}</td>
                         <td className="px-lg py-md text-body-md text-on-surface-variant font-medium">{inv.date}</td>
                         <td className="px-lg py-md">
                           <span className="bg-primary/10 text-primary text-[11px] font-bold px-2.5 py-1 rounded-full border border-primary/20">
@@ -2627,14 +2607,14 @@ function UserDashboardContent() {
                 <div className="space-y-sm">
                   <div className="space-y-xs">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-outline block">1. Fetching all visible prompts:</span>
-                    <pre className="bg-black/95 text-success p-md rounded-xl font-mono text-xs overflow-x-auto select-all">
+                    <pre className="bg-black/95 text-green-400 p-md rounded-xl font-mono text-xs overflow-x-auto select-all">
 {`curl -X GET "http://localhost:3000/api/v1/prompts" \\
   -H "Authorization: Bearer YOUR_API_KEY"`}
                     </pre>
                   </div>
                   <div className="space-y-xs">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-outline block">2. Fetching a specific template:</span>
-                    <pre className="bg-black/95 text-success p-md rounded-xl font-mono text-xs overflow-x-auto select-all">
+                    <pre className="bg-black/95 text-green-400 p-md rounded-xl font-mono text-xs overflow-x-auto select-all">
 {`curl -X GET "http://localhost:3000/api/v1/prompts/PROMPT_ID" \\
   -H "Authorization: Bearer YOUR_API_KEY"`}
                     </pre>
@@ -2672,7 +2652,7 @@ function UserDashboardContent() {
       <aside className="hidden md:flex flex-col h-screen w-64 left-0 top-0 fixed bg-surface-container-lowest border-r border-outline-variant/30 py-lg space-y-sm z-40">
         <div className="px-lg mb-xl">
           <Link href="/" className="flex items-center gap-xs">
-            <h1 className="text-headline-md font-bold text-primary tracking-tight">Prompt Library</h1>
+            <h1 className="text-headline-md font-bold text-primary tracking-tight">Online Prompt Library</h1>
           </Link>
           <p className="text-label-md font-medium text-on-surface-variant/70 mt-xs">{activePlan} Plan Active</p>
         </div>
@@ -2707,10 +2687,10 @@ function UserDashboardContent() {
             Create New Prompt
           </button>
           <div className="mt-xl space-y-xs">
-            <a className="flex items-center gap-md text-on-surface-variant hover:text-primary transition-colors px-md py-xs font-semibold text-label-md" href="#">
+            <Link className="flex items-center gap-md text-on-surface-variant hover:text-primary transition-colors px-md py-xs font-semibold text-label-md" href="/support">
               <span className="material-symbols-outlined text-[18px]">help</span>
               Support Center
-            </a>
+            </Link>
             {userRole === 'ADMIN' && (
               <button 
                 onClick={() => setActiveTab('Admin Logs')}
@@ -2796,14 +2776,12 @@ function UserDashboardContent() {
         {/* Footer component matching Stitch layout */}
         <footer className="mt-auto w-full py-xl px-lg flex flex-col md:flex-row justify-between items-center max-w-container-max mx-auto bg-surface-container-lowest border-t border-outline-variant/30">
           <div className="flex flex-col items-center md:items-start mb-md md:mb-0">
-            <span className="text-title-md font-bold text-on-surface">Prompt Library</span>
-            <p className="text-body-md text-on-surface-variant/80 mt-xs">© 2026 Prompt Library. Built for high-utility SaaS.</p>
+            <span className="text-title-md font-bold text-on-surface">Online Prompt Library</span>
+            <p className="text-body-md text-on-surface-variant/80 mt-xs">© 2026 Online Prompt Library. Built for high-utility SaaS.</p>
           </div>
           <div className="flex gap-lg">
-            <a className="text-label-md text-on-surface-variant hover:text-primary transition-colors font-medium" href="#">Terms</a>
-            <a className="text-label-md text-on-surface-variant hover:text-primary transition-colors font-medium" href="#">Privacy</a>
-            <a className="text-label-md text-on-surface-variant hover:text-primary transition-colors font-medium" href="#">Twitter</a>
-            <a className="text-label-md font-medium text-on-surface-variant hover:text-primary transition-colors" href="#">GitHub</a>
+            <Link className="text-label-md text-on-surface-variant hover:text-primary transition-colors font-medium" href="/terms">Terms</Link>
+            <Link className="text-label-md text-on-surface-variant hover:text-primary transition-colors font-medium" href="/privacy">Privacy</Link>
           </div>
         </footer>
       </main>
@@ -2856,7 +2834,7 @@ function UserDashboardContent() {
                         navigator.clipboard.writeText(activePrompt.id);
                         triggerToast("Prompt ID copied to clipboard!");
                       }}
-                      className="bg-surface-container-high text-on-surface-variant px-xs py-0.5 rounded text-[11px] font-mono font-bold cursor-pointer hover:bg-primary/10 hover:text-primary transition-all flex items-center gap-xs ml-xs border border-outline-variant/25"
+                      className="bg-surface-container-high text-on-surface-variant px-xs py-0.5 rounded text-[11px] font-mono font-bold cursor-pointer hover:bg-primary/10 hover:text-primary transition-all flex items-center gap-xs ml-xs border border-outline-variant/20"
                       title="Click to copy Prompt ID for API usage"
                     >
                       <span className="material-symbols-outlined text-[13px]">code</span>
@@ -3094,7 +3072,7 @@ function UserDashboardContent() {
                                       </div>
                                       
                                       {isExpanded && (
-                                        <div className="pt-xs border-t border-outline-variant/20 space-y-sm animate-in fade-in slide-in-from-top-1 duration-150">
+                                        <div className="pt-xs border-t border-outline-variant/20 space-y-sm animate-in fade-in slide-in-from-top-1 duration-155">
                                           {ver.subtitle && (
                                             <p className="text-body-sm text-on-surface-variant/90 italic">
                                               &quot;{ver.subtitle}&quot;
@@ -3105,9 +3083,9 @@ function UserDashboardContent() {
                                           </div>
                                           {ver.tags && ver.tags.length > 0 && (
                                             <div className="flex flex-wrap gap-xs">
-                                              {ver.tags.map((tag, i) => (
-                                                <span key={i} className="text-[9px] font-extrabold uppercase text-outline">
-                                                  #{tag}
+                                              {ver.tags.map((t, i) => (
+                                                <span key={i} className="px-xs py-0.5 bg-secondary-container/5 text-secondary text-[10px] font-semibold rounded">
+                                                  {t}
                                                 </span>
                                               ))}
                                             </div>
@@ -3123,44 +3101,50 @@ function UserDashboardContent() {
                         )}
                       </div>
                     )}
-
-                    <div className="pt-md border-t border-outline-variant/30 shrink-0 flex flex-wrap gap-sm justify-between items-center bg-surface-container-lowest">
-                      <div className="text-label-xs text-on-surface-variant/80 font-medium">
-                        Created on {activePrompt.createdDate}
-                      </div>
-                      
-                      <div className="flex gap-sm">
-                        <button 
-                          onClick={() => exportSinglePromptJSON(activePrompt)}
-                          className="px-md py-sm border border-outline-variant rounded-xl text-label-md font-bold hover:bg-surface-container-high transition-colors cursor-pointer flex items-center gap-xs"
-                          title="Export Prompt to JSON"
-                        >
-                          <span className="material-symbols-outlined text-[16px]">download</span>
-                          Export JSON
-                        </button>
-                        <button 
-                          onClick={() => exportSinglePromptText(activePrompt, getCompiledTemplate(activePrompt.template, varValues))}
-                          className="px-md py-sm border border-outline-variant rounded-xl text-label-md font-bold hover:bg-surface-container-high transition-colors cursor-pointer flex items-center gap-xs"
-                          title="Export Prompt or playground compiled text"
-                        >
-                          <span className="material-symbols-outlined text-[16px]">description</span>
-                          Export Text
-                        </button>
-                        
-                        <button 
-                          onClick={() => {
-                            const rawText = getCompiledTemplate(activePrompt.template, varValues);
-                            navigator.clipboard.writeText(rawText);
-                            triggerToast("Playground template copied!");
-                          }}
-                          className="px-lg py-sm bg-primary text-on-primary rounded-xl text-label-md font-bold hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer flex items-center gap-xs animate-in"
-                        >
-                          <span className="material-symbols-outlined text-[18px]">content_copy</span>
-                          Copy Prompt
-                        </button>
-                      </div>
-                    </div>
                   </>
+                )}
+              </div>
+
+              <div className="p-lg flex justify-end gap-sm border-t border-outline-variant/20 bg-surface-container-low/20 shrink-0">
+                <button 
+                  onClick={() => setActivePrompt(null)}
+                  className="px-lg py-sm border border-outline-variant rounded-xl text-label-md font-bold hover:bg-surface-container-high hover:text-on-surface transition-all cursor-pointer"
+                >
+                  Close View
+                </button>
+                <button 
+                  onClick={() => exportSinglePromptJSON(activePrompt)}
+                  className="px-lg py-sm border border-outline-variant text-on-surface hover:bg-surface-container-high rounded-xl text-label-md font-bold transition-all flex items-center gap-xs cursor-pointer"
+                  title="Export structured prompt metadata as JSON"
+                >
+                  <span className="material-symbols-outlined text-[18px]">download</span>
+                  Export JSON
+                </button>
+                <button 
+                  onClick={() => {
+                    const compiledText = getCompiledTemplate(activePrompt.template, varValues);
+                    exportSinglePromptText(activePrompt, compiledText);
+                  }}
+                  className="px-lg py-sm border border-outline-variant text-on-surface hover:bg-surface-container-high rounded-xl text-label-md font-bold transition-all flex items-center gap-xs cursor-pointer"
+                  title="Export compiled instructions as raw text"
+                >
+                  <span className="material-symbols-outlined text-[18px]">article</span>
+                  Export Text
+                </button>
+                {!isRestricted && (
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const compiledText = getCompiledTemplate(activePrompt.template, varValues);
+                      navigator.clipboard.writeText(compiledText);
+                      triggerToast("Compiled template copied to clipboard!");
+                      setActivePrompt(null);
+                    }}
+                    className="px-lg py-sm bg-primary text-on-primary rounded-xl text-label-md font-bold hover:shadow-lg hover:shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-xs cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">content_copy</span>
+                    Copy Compiled Prompt
+                  </button>
                 )}
               </div>
             </div>
@@ -3168,12 +3152,12 @@ function UserDashboardContent() {
         );
       })()}
 
-      {/* ADD NEW PROMPT DETAILS MODAL */}
+      {/* CREATE NEW PROMPT MODAL */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-lg">
           <div className="bg-surface-container-lowest border border-outline-variant/40 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="px-lg py-md border-b border-outline-variant/30 flex justify-between items-center bg-surface-container-low/40 shrink-0">
-              <h3 className="text-title-md font-bold text-on-surface">Add New Prompt Template</h3>
+              <h3 className="text-title-md font-bold text-on-surface">Add New Prompt</h3>
               <button 
                 onClick={() => setIsAddModalOpen(false)}
                 className="text-on-surface-variant hover:text-on-surface p-1 rounded-lg hover:bg-surface-container-high transition-colors cursor-pointer"
@@ -3190,8 +3174,8 @@ function UserDashboardContent() {
                     type="text" 
                     value={formTitle}
                     onChange={(e) => setFormTitle(e.target.value)}
-                    placeholder="e.g. SQL Query Builder"
-                    className="w-full bg-surface text-body-md border border-outline-variant rounded-xl px-md py-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-semibold"
+                    placeholder="e.g. SQL Performance Tuning Architect"
+                    className="w-full bg-surface text-body-md border border-outline-variant rounded-xl px-md py-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
                     required
                   />
                 </div>
@@ -3258,7 +3242,7 @@ function UserDashboardContent() {
                     className="w-full bg-surface text-body-md border border-outline-variant rounded-xl px-md py-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all cursor-pointer font-semibold"
                   >
                     <option value="">None (Auto-match by Category)</option>
-                    {collections.filter(c => !['marketing', 'engineering', 'ai-agents'].includes(c.id)).map(col => (
+                    {collections.map(col => (
                       <option key={col.id} value={col.id}>{col.name}</option>
                     ))}
                   </select>
@@ -3395,7 +3379,7 @@ function UserDashboardContent() {
                     className="w-full bg-surface text-body-md border border-outline-variant rounded-xl px-md py-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all cursor-pointer font-semibold"
                   >
                     <option value="">None (Auto-match by Category)</option>
-                    {collections.filter(c => !['marketing', 'engineering', 'ai-agents'].includes(c.id)).map(col => (
+                    {collections.map(col => (
                       <option key={col.id} value={col.id}>{col.name}</option>
                     ))}
                   </select>
@@ -3592,7 +3576,7 @@ function UserDashboardContent() {
             <div className="flex justify-between items-center border-b border-outline-variant/20 pb-xs">
               <h3 className="text-title-md font-bold text-on-surface flex items-center gap-xs">
                 <span className="material-symbols-outlined text-primary text-[20px]">download</span>
-                Export Prompt Library
+                Export Online Prompt Library
               </h3>
               <button 
                 onClick={() => setIsExportModalOpen(false)}
@@ -3672,3 +3656,4 @@ function UserDashboardContent() {
     </div>
   );
 }
+

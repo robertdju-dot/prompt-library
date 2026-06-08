@@ -4,6 +4,7 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 
 export async function GET(request) {
   try {
+    // 1. Get the Authorization Header
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json({ error: 'Unauthorized: Missing or invalid Authorization header' }, { status: 401 });
@@ -11,11 +12,13 @@ export async function GET(request) {
 
     const token = authHeader.substring(7).trim();
 
+    // 2. Validate token against Firestore apiKeys collection
     let ownerUid = null;
     let validated = false;
 
+    // Hardcoded sandbox fallback compatibility
     if (token === 'sk_live_4627dja89d3ja827ad82' || token === 'sk_test_8372adja283dha1239ad') {
-      ownerUid = 'system';
+      ownerUid = 'system'; // System fallback
       validated = true;
     } else {
       const apiKeysRef = collection(db, 'apiKeys');
@@ -33,6 +36,11 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Unauthorized: Invalid API key' }, { status: 401 });
     }
 
+    // 3. Fetch prompts visible to this user
+    // Visible prompts rules:
+    // - System presets (createdBy === 'system' or 'preset' or no createdBy)
+    // - Prompts marked as shared (isShared === true)
+    // - Custom prompts created by the key owner (createdBy === ownerUid)
     const promptsRef = collection(db, 'prompts');
     const promptsSnapshot = await getDocs(promptsRef);
     const visiblePrompts = [];
