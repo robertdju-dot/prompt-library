@@ -415,7 +415,7 @@ export default function LandingPage() {
                 <img 
                   className="rounded-xl shadow-xl w-full border border-outline-variant/30" 
                   alt="Futuristic abstract tech rendering"
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuA2FMAhxVsLgvYAVaC4vD_IhLzZ6Al2OlFkolFhro9vGSLIGQdLab9ICUUOZuluUQ_OZnZFp3U4Trww1HWRwleVqKNXzb_y6M0woAQ05W-Ucx47JPWnRHdc8pBtQ7WWDuc7f-ssyvIbBOGzwVcLe6pYVP9_kX-MMaXMCjvNuqpCevYQg8me-4nn_XIGyCuaMhbOYvPVJLc9_2hc-rVV9Aaplo54IAiMwTO6waMddJx1YJkZciZ2GX7sl_BGfAE6KP0PEqh4py9cOAUk" 
+                  src="https://onlinepromptlibrary.com/promptlib1.jpeg" 
                 />
               </div>
             </div>
