@@ -16,7 +16,8 @@ import {
   getDoc,
   setDoc,
   query, 
-  orderBy 
+  orderBy,
+  where
 } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 
@@ -233,12 +234,40 @@ function UserDashboardContent() {
   // Settings States
   const [profileName, setProfileName] = useState("Alex Rivera");
   const [profileAvatar, setProfileAvatar] = useState("https://lh3.googleusercontent.com/aida-public/AB6AXuBkfa-3awNqRC3sNV8wK_I6ZdaEYXlAUsNCqbKtgilTWPlpWZ6HkmdshJLLwS_EufEl5K7EuvXWlhdPB_cxWzIkZkZwwpKjYPXsrRZ6KUwMlov_XTpaAZA1KR3tfGeAvbXnGHt8HpTM1FZVT8rmP14rV4fkJ_lrfvvFRia_AVBoxKKktEV_wlmFZiJjgjhOuchXugWQxragJD8D085z9VIQNConRHZVa0-zvQ8DIKDKOW6uLpnEedwL5Kf1d0A9ILFJDFDqndHkOjt0");
+  const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
+  const [avatarSearchQuery, setAvatarSearchQuery] = useState("");
   const [themeMode, setThemeMode] = useState("light");
+
+  // Announcement & Notification States
+  const [announcements, setAnnouncements] = useState([]);
+  const [isLoadingAnnouncements, setIsLoadingAnnouncements] = useState(false);
+  const [readAnnouncements, setReadAnnouncements] = useState([]);
+  const [isNotificationsDropdownOpen, setIsNotificationsDropdownOpen] = useState(false);
+  const [announcementTitle, setAnnouncementTitle] = useState("");
+  const [announcementMessage, setAnnouncementMessage] = useState("");
+  const [announcementType, setAnnouncementType] = useState("info");
   const [apiKeys, setApiKeys] = useState([]);
   const [newKeyName, setNewKeyName] = useState("");
   const [isNewKeyModalOpen, setIsNewKeyModalOpen] = useState(false);
 
   const [userRole, setUserRole] = useState('USER');
+
+  // Blog CMS States
+  const [blogPosts, setBlogPosts] = useState([]);
+  const [isLoadingBlogs, setIsLoadingBlogs] = useState(false);
+  const [isBlogModalOpen, setIsBlogModalOpen] = useState(false);
+  const [blogSearch, setBlogSearch] = useState('');
+  const [blogStatusFilter, setBlogStatusFilter] = useState('All');
+  const [editingBlogPost, setEditingBlogPost] = useState(null);
+
+  // Blog Form States
+  const [blogTitle, setBlogTitle] = useState('');
+  const [blogSubtitle, setBlogSubtitle] = useState('');
+  const [blogSlug, setBlogSlug] = useState('');
+  const [blogCoverImage, setBlogCoverImage] = useState('');
+  const [blogTags, setBlogTags] = useState('');
+  const [blogStatus, setBlogStatus] = useState('draft');
+  const [blogContent, setBlogContent] = useState('');
 
   const hasPremiumAccess = () => {
     if (userRole === 'ADMIN') return true;
@@ -263,9 +292,9 @@ function UserDashboardContent() {
     return false;
   });
 
-  // Prevent non-admin users from staying on Admin Logs view
+  // Prevent non-admin users from staying on Admin Logs or Blog CMS view
   useEffect(() => {
-    if (activeTab === 'Admin Logs' && userRole !== 'ADMIN') {
+    if ((activeTab === 'Admin Logs' || activeTab === 'Blog CMS') && userRole !== 'ADMIN') {
       setActiveTab('Dashboard');
     }
   }, [activeTab, userRole]);
@@ -283,6 +312,8 @@ function UserDashboardContent() {
           if (userDocSnap.exists()) {
             const userData = userDocSnap.data();
             if (userData.name) setProfileName(userData.name);
+            if (userData.avatar) setProfileAvatar(userData.avatar);
+            if (userData.readAnnouncements) setReadAnnouncements(userData.readAnnouncements);
             if (userData.tier) setActivePlan(userData.tier);
             if (userData.role) setUserRole(userData.role);
             if (userData.status === 'SUSPENDED') {
@@ -950,6 +981,159 @@ function UserDashboardContent() {
 
     fetchPromptsAndConfig();
   }, []);
+
+  // Fetch Announcements from Firestore on mount
+  useEffect(() => {
+    const fetchAnnouncements = async () => {
+      setIsLoadingAnnouncements(true);
+      try {
+        const q = query(collection(db, "announcements"));
+        const querySnapshot = await getDocs(q);
+        const docs = [];
+        querySnapshot.forEach((docSnap) => {
+          docs.push({ id: docSnap.id, ...docSnap.data() });
+        });
+        docs.sort((a, b) => b.timestamp - a.timestamp);
+        setAnnouncements(docs);
+      } catch (error) {
+        console.error("Failed to load announcements from Firestore:", error);
+        setAnnouncements([
+          {
+            id: "mock-1",
+            title: "System Maintenance Scheduled",
+            message: "Our servers will undergo scheduled database maintenance this Sunday from 02:00 to 04:00 UTC. API services may experience minor latency spikes.",
+            timestamp: Date.now() - 3600000 * 5,
+            type: "warning",
+            sender: "Admin"
+          },
+          {
+            id: "mock-2",
+            title: "DeepSeek-R1 Integration Live!",
+            message: "You can now select and run optimized prompts for DeepSeek-R1 models in your playground workspace.",
+            timestamp: Date.now() - 3600000 * 24 * 2,
+            type: "success",
+            sender: "Admin"
+          }
+        ]);
+      } finally {
+        setIsLoadingAnnouncements(false);
+      }
+    };
+    fetchAnnouncements();
+  }, []);
+
+  // Fetch Blog Posts from Firestore & Auto-seed if empty
+  useEffect(() => {
+    const fetchBlogs = async () => {
+      if (!currentUser) return;
+      setIsLoadingBlogs(true);
+      try {
+        const querySnapshot = await getDocs(collection(db, "blogs"));
+        if (querySnapshot.empty) {
+          const now = Date.now();
+          const seedPosts = [
+            {
+              title: "Unlocking Advanced Reasonings in DeepSeek models",
+              subtitle: "How to structure prompting architectures to elicit chain-of-thought processing.",
+              slug: "unlocking-advanced-reasonings-deepseek",
+              content: `# Introduction
+Reasoning models like DeepSeek-R1 have shifted the paradigm of prompt engineering. Instead of providing heavy instructions on formatting, the goal is now to **unleash reasoning capabilities**.
+
+## Structure for Chain-of-Thought
+When prompting reasoning models, structure your instructions like this:
+1. **Context/Goal**: Explain the ultimate result needed.
+2. **Constraints**: Define what NOT to do.
+3. **Reasoning Space**: Instruct the model to analyze before outputting.
+
+\`\`\`javascript
+// Example prompt trigger
+const prompt = \`Goal: Analyze customer feedback.
+Constraint: Do not use bullet points.
+Instruction: Outline the core emotional pain points.\`;
+\`\`\``,
+              status: "published",
+              tags: ["DeepSeek", "Prompting", "AI Strategy"],
+              coverImage: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=80",
+              authorName: profileName || "Alex Rivera",
+              authorAvatar: profileAvatar || "https://lh3.googleusercontent.com/aida-public/AB6AXuBkfa-3awNqRC3sNV8wK_I6ZdaEYXlAUsNCqbKtgilTWPlpWZ6HkmdshJLLwS_EufEl5K7EuvXWlhdPB_cxWzIkZkZwwpKjYPXsrRZ6KUwMlov_XTpaAZA1KR3tfGeAvbXnGHt8HpTM1FZVT8rmP14rV4fkJ_lrfvvFRia_AVBoxKKktEV_wlmFZiJjgjhOuchXugWQxragJD8D085z9VIQNConRHZVa0-zvQ8DIKDKOW6uLpnEedwL5Kf1d0A9ILFJDFDqndHkOjt0",
+              createdTimestamp: now - 3600000 * 24, // 1 day ago
+              publishedTimestamp: now - 3600000 * 24,
+              createdBy: currentUser.uid
+            },
+            {
+              title: "The Art of Multi-Shot Prompting",
+              subtitle: "Why zero-shot is failing your agents and how to construct perfect context windows.",
+              slug: "art-of-multi-shot-prompting",
+              content: `# The Power of Examples
+Many developers expect models to guess their output format with zero context. In production SaaS platforms, **multi-shot prompting** (providing 3-5 high-quality examples) improves output alignment by up to 90%.
+
+## Example Context Design
+Provide input-output pairs in the system instructions:
+
+\`\`\`
+Input: Write email subject for product launch.
+Output: Inside look: The next-gen headphone is here.
+\`\`\`
+
+By matching the user's expected tone, multi-shot ensures robust APIs.`,
+              status: "published",
+              tags: ["Prompting", "LLMs", "Context"],
+              coverImage: "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?auto=format&fit=crop&w=1200&q=80",
+              authorName: profileName || "Alex Rivera",
+              authorAvatar: profileAvatar || "https://lh3.googleusercontent.com/aida-public/AB6AXuBkfa-3awNqRC3sNV8wK_I6ZdaEYXlAUsNCqbKtgilTWPlpWZ6HkmdshJLLwS_EufEl5K7EuvXWlhdPB_cxWzIkZkZwwpKjYPXsrRZ6KUwMlov_XTpaAZA1KR3tfGeAvbXnGHt8HpTM1FZVT8rmP14rV4fkJ_lrfvvFRia_AVBoxKKktEV_wlmFZiJjgjhOuchXugWQxragJD8D085z9VIQNConRHZVa0-zvQ8DIKDKOW6uLpnEedwL5Kf1d0A9ILFJDFDqndHkOjt0",
+              createdTimestamp: now - 3600000 * 48, // 2 days ago
+              publishedTimestamp: now - 3600000 * 48,
+              createdBy: currentUser.uid
+            },
+            {
+              title: "Structuring SaaS APIs with Dynamic Prompts",
+              subtitle: "A guide to managing user inputs, system instructions, and LLM orchestration.",
+              slug: "structuring-saas-apis-dynamic-prompts",
+              content: `# API Prompt Orchestration
+Building a Prompt-as-a-Service wrapper requires structuring templates where inputs can be safely injected without prompt injection attacks.
+
+## Best Practices
+- Sanitize user inputs using structured XML tags like \`<user_query>\`.
+- Enforce JSON schemas using tools calls or strict output modes.
+- Keep your core instructions hidden from client payloads.`,
+              status: "published",
+              tags: ["API", "SaaS", "Development"],
+              coverImage: "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&w=1200&q=80",
+              authorName: profileName || "Alex Rivera",
+              authorAvatar: profileAvatar || "https://lh3.googleusercontent.com/aida-public/AB6AXuBkfa-3awNqRC3sNV8wK_I6ZdaEYXlAUsNCqbKtgilTWPlpWZ6HkmdshJLLwS_EufEl5K7EuvXWlhdPB_cxWzIkZkZwwpKjYPXsrRZ6KUwMlov_XTpaAZA1KR3tfGeAvbXnGHt8HpTM1FZVT8rmP14rV4fkJ_lrfvvFRia_AVBoxKKktEV_wlmFZiJjgjhOuchXugWQxragJD8D085z9VIQNConRHZVa0-zvQ8DIKDKOW6uLpnEedwL5Kf1d0A9ILFJDFDqndHkOjt0",
+              createdTimestamp: now - 3600000 * 72, // 3 days ago
+              publishedTimestamp: now - 3600000 * 72,
+              createdBy: currentUser.uid
+            }
+          ];
+
+          const loaded = [];
+          for (const post of seedPosts) {
+            const docRef = await addDoc(collection(db, "blogs"), post);
+            loaded.push({ id: docRef.id, ...post });
+          }
+          setBlogPosts(loaded);
+        } else {
+          const docs = [];
+          querySnapshot.forEach((docSnap) => {
+            const data = docSnap.data();
+            const normalizedContent = (data.content || '').replace(/\\n/g, '\n');
+            docs.push({ id: docSnap.id, ...data, content: normalizedContent });
+          });
+          docs.sort((a, b) => b.createdTimestamp - a.createdTimestamp);
+          setBlogPosts(docs);
+        }
+      } catch (error) {
+        console.error("Failed to load blog posts:", error);
+      } finally {
+        setIsLoadingBlogs(false);
+      }
+    };
+
+    if (currentUser) {
+      fetchBlogs();
+    }
+  }, [currentUser, profileName, profileAvatar]);
 
   // Trigger Toast Notification
   const triggerToast = (msg) => {
@@ -2018,6 +2202,123 @@ function UserDashboardContent() {
           </div>
         </div>
 
+        {/* BROADCAST ANNOUNCEMENT CARD */}
+        <div className="bg-surface-container-lowest border border-outline-variant/40 rounded-xl overflow-hidden shadow-sm grid grid-cols-1 lg:grid-cols-12 gap-0">
+          <div className="lg:col-span-6 p-lg border-b lg:border-b-0 lg:border-r border-outline-variant/20 flex flex-col justify-between">
+            <form onSubmit={handleBroadcastAnnouncement} className="space-y-md flex flex-col justify-between h-full">
+              <div>
+                <h3 className="text-title-md font-bold text-on-surface flex items-center gap-xs mb-sm">
+                  <span className="material-symbols-outlined text-primary text-[20px]">campaign</span>
+                  Broadcast System Announcement
+                </h3>
+                <p className="text-label-md text-on-surface-variant font-medium mb-md">Publish global notifications immediately to all users. Users will see a red indicator badge on their navigation bar.</p>
+                
+                <div className="space-y-sm">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-sm">
+                    <div className="md:col-span-2 space-y-xs">
+                      <label className="text-label-sm font-bold text-on-surface-variant uppercase tracking-wider text-[11px] block">Announcement Title</label>
+                      <input 
+                        type="text"
+                        value={announcementTitle}
+                        onChange={(e) => setAnnouncementTitle(e.target.value)}
+                        placeholder="e.g. Scheduled Maintenance"
+                        className="w-full bg-surface text-on-surface border border-outline-variant rounded-xl px-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-semibold"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-xs">
+                      <label className="text-label-sm font-bold text-on-surface-variant uppercase tracking-wider text-[11px] block">Alert Type</label>
+                      <select 
+                        value={announcementType}
+                        onChange={(e) => setAnnouncementType(e.target.value)}
+                        className="w-full bg-surface text-on-surface border border-outline-variant rounded-xl px-md py-[11px] focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all border-outline text-body-md font-semibold"
+                      >
+                        <option value="info">Info (Blue)</option>
+                        <option value="warning">Warning (Orange)</option>
+                        <option value="success">Success (Green)</option>
+                        <option value="critical">Critical (Red)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-xs">
+                    <label className="text-label-sm font-bold text-on-surface-variant uppercase tracking-wider text-[11px] block">Message Details</label>
+                    <textarea 
+                      value={announcementMessage}
+                      onChange={(e) => setAnnouncementMessage(e.target.value)}
+                      placeholder="Compose notification text..."
+                      className="w-full h-24 bg-surface text-on-surface border border-outline-variant rounded-xl px-md py-sm text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all resize-none font-semibold"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+              <button 
+                type="submit"
+                className="mt-lg w-full bg-primary text-on-primary py-sm rounded-xl font-semibold hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer shadow-sm text-body-md border-none flex items-center justify-center gap-xs"
+              >
+                <span className="material-symbols-outlined text-[18px]">send</span>
+                Dispatch Announcement
+              </button>
+            </form>
+          </div>
+
+          <div className="lg:col-span-6 p-lg flex flex-col justify-between min-h-[300px]">
+            <div>
+              <h3 className="text-title-md font-bold text-on-surface flex items-center gap-xs mb-sm">
+                <span className="material-symbols-outlined text-primary text-[20px]">history</span>
+                Dispatched Announcements History
+              </h3>
+              <p className="text-label-md text-on-surface-variant font-medium mb-md">Recall or review previously distributed platform alerts.</p>
+              
+              <div className="space-y-sm max-h-[260px] overflow-y-auto pr-xs">
+                {isLoadingAnnouncements ? (
+                  <div className="text-center py-md text-on-surface-variant font-medium animate-pulse text-body-md">
+                    Loading announcements...
+                  </div>
+                ) : announcements.length === 0 ? (
+                  <div className="text-center py-xl text-on-surface-variant font-medium text-body-sm flex flex-col items-center gap-sm">
+                    <span className="material-symbols-outlined text-outline text-[32px]">campaign</span>
+                    No active announcements broadcasted yet.
+                  </div>
+                ) : (
+                  announcements.map(ann => {
+                    const typeColors = {
+                      info: 'bg-primary/10 text-primary border-primary/20',
+                      warning: 'bg-amber-500/10 text-amber-500 border border-amber-500/20',
+                      success: 'bg-success/10 text-success border border-success/20',
+                      critical: 'bg-error/10 text-error border border-error/20'
+                    };
+                    return (
+                      <div key={ann.id} className="p-sm bg-surface-container-low/40 border border-outline-variant/20 rounded-xl hover:bg-surface-container-low/80 transition-colors flex justify-between items-start gap-md">
+                        <div className="min-w-0 flex-grow">
+                          <div className="flex flex-wrap items-center gap-sm">
+                            <span className="text-body-md font-bold text-on-surface">{ann.title}</span>
+                            <span className={`px-sm py-0.5 rounded-full text-[9px] font-bold uppercase ${typeColors[ann.type] || typeColors.info}`}>
+                              {ann.type}
+                            </span>
+                          </div>
+                          <p className="text-body-sm text-on-surface-variant mt-1 leading-normal break-words font-medium">{ann.message}</p>
+                          <span className="text-[9px] text-outline font-extrabold uppercase mt-1.5 block tracking-wider">
+                            Sent {new Date(ann.timestamp).toLocaleDateString()} by {ann.sender || 'Admin'}
+                          </span>
+                        </div>
+                        <button 
+                          onClick={() => handleDeleteAnnouncement(ann.id)}
+                          className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error-container/10 rounded-lg transition-all cursor-pointer border-none bg-transparent flex items-center justify-center shrink-0"
+                          title="Recall/Delete Announcement"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">delete</span>
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="bg-surface-container-lowest border border-outline-variant/40 rounded-xl overflow-hidden shadow-sm flex flex-col min-h-[300px]">
           <div className="px-lg py-md border-b border-outline-variant/30 bg-surface-container-low/20 flex justify-between items-center">
             <h3 className="text-title-md font-bold text-on-surface flex items-center gap-xs">
@@ -2312,6 +2613,87 @@ function UserDashboardContent() {
             </div>
           </div>
         </div>
+
+        {/* PLATFORM ANNOUNCEMENTS FEED */}
+        <div className="bg-surface-container-lowest border border-outline-variant/40 rounded-xl overflow-hidden shadow-sm">
+          <div className="px-lg py-md border-b border-outline-variant/30 flex justify-between items-center bg-surface-container-low/20">
+            <h3 className="text-title-md font-bold text-on-surface flex items-center gap-xs">
+              <span className="material-symbols-outlined text-primary text-[22px]">campaign</span>
+              Platform Announcements Feed
+            </h3>
+            {announcements.length > 0 && announcements.filter(a => !readAnnouncements.includes(a.id)).length > 0 && (
+              <button 
+                onClick={handleMarkAllAnnouncementsRead}
+                className="text-primary text-label-md font-bold hover:underline cursor-pointer flex items-center gap-xs border-none bg-transparent"
+              >
+                <span className="material-symbols-outlined text-[14px]">done_all</span>
+                Mark all as read
+              </button>
+            )}
+          </div>
+          <div className="p-lg">
+            {isLoadingAnnouncements ? (
+              <div className="text-center py-lg text-on-surface-variant font-medium animate-pulse text-body-md">
+                Loading announcements...
+              </div>
+            ) : announcements.length === 0 ? (
+              <div className="text-center py-lg text-on-surface-variant font-medium text-body-sm flex flex-col items-center gap-sm">
+                <span className="material-symbols-outlined text-outline text-[40px]">campaign</span>
+                No platform announcements published.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-lg">
+                {announcements.map(ann => {
+                  const isUnread = !readAnnouncements.includes(ann.id);
+                  const typeColors = {
+                    info: 'border-primary/25 bg-primary/5 text-primary',
+                    warning: 'border-amber-500/25 bg-amber-500/5 text-amber-500',
+                    success: 'border-success/25 bg-success/5 text-success',
+                    critical: 'border-error/25 bg-error/5 text-error'
+                  };
+                  const typeIcons = {
+                    info: 'info',
+                    warning: 'warning',
+                    success: 'check_circle',
+                    critical: 'campaign'
+                  };
+                  return (
+                    <div 
+                      key={ann.id} 
+                      onClick={() => handleMarkAnnouncementRead(ann.id)}
+                      className={`p-lg border rounded-xl transition-all relative flex flex-col justify-between ${
+                        isUnread 
+                          ? 'border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20 hover:scale-[1.01]' 
+                          : 'border-outline-variant/40 hover:border-outline-variant/70 bg-surface-container-lowest hover:shadow-sm hover:scale-[1.01]'
+                      } cursor-pointer`}
+                    >
+                      <div>
+                        <div className="flex justify-between items-start mb-sm gap-xs">
+                          <span className={`px-sm py-0.5 rounded text-[9px] font-bold uppercase tracking-wider flex items-center gap-xs border ${typeColors[ann.type] || typeColors.info}`}>
+                            <span className="material-symbols-outlined text-[10px]">{typeIcons[ann.type] || 'info'}</span>
+                            {ann.type}
+                          </span>
+                          {isUnread && (
+                            <span className="bg-primary text-on-primary text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded-full animate-pulse tracking-wide shrink-0">
+                              NEW
+                            </span>
+                          )}
+                        </div>
+                        <h4 className={`text-title-sm font-bold text-on-surface ${isUnread ? 'text-primary' : ''}`}>{ann.title}</h4>
+                        <p className="text-body-sm text-on-surface-variant/95 mt-sm leading-relaxed font-medium">{ann.message}</p>
+                      </div>
+                      <div className="mt-md pt-sm border-t border-outline-variant/20 flex justify-between items-center text-[9px] text-outline font-extrabold uppercase tracking-wider">
+                        <span>Sent by {ann.sender || 'Admin'}</span>
+                        <span>{new Date(ann.timestamp).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
       </div>
     );
   };
@@ -2874,6 +3256,121 @@ function UserDashboardContent() {
     );
   };
 
+  const handleSaveProfile = async () => {
+    if (currentUser) {
+      try {
+        const userDocRef = doc(db, 'users', currentUser.uid);
+        await setDoc(userDocRef, {
+          name: profileName,
+          avatar: profileAvatar
+        }, { merge: true });
+        triggerToast("Profile settings saved successfully.");
+      } catch (err) {
+        console.error("Error saving profile to Firestore:", err);
+        triggerToast("Failed to save to database. Saved locally.");
+      }
+    } else {
+      triggerToast("Profile settings saved locally.");
+    }
+  };
+
+  const handleMarkAnnouncementRead = async (announcementId) => {
+    if (readAnnouncements.includes(announcementId)) return;
+    const updated = [...readAnnouncements, announcementId];
+    setReadAnnouncements(updated);
+    if (currentUser) {
+      try {
+        const userDocRef = doc(db, 'users', currentUser.uid);
+        await setDoc(userDocRef, { readAnnouncements: updated }, { merge: true });
+      } catch (err) {
+        console.error("Failed to save read announcement state:", err);
+      }
+    }
+  };
+
+  const handleMarkAllAnnouncementsRead = async () => {
+    const allIds = announcements.map(a => a.id);
+    const uniqueIds = Array.from(new Set([...readAnnouncements, ...allIds]));
+    setReadAnnouncements(uniqueIds);
+    triggerToast("All notifications marked as read.");
+    if (currentUser) {
+      try {
+        const userDocRef = doc(db, 'users', currentUser.uid);
+        await setDoc(userDocRef, { readAnnouncements: uniqueIds }, { merge: true });
+      } catch (err) {
+        console.error("Failed to save all read state:", err);
+      }
+    }
+  };
+
+  const handleBroadcastAnnouncement = async (e) => {
+    e.preventDefault();
+    if (!announcementTitle.trim() || !announcementMessage.trim()) {
+      triggerToast("Please fill in both title and message.");
+      return;
+    }
+    
+    const now = Date.now();
+    const newAnnouncement = {
+      title: announcementTitle.trim(),
+      message: announcementMessage.trim(),
+      type: announcementType,
+      timestamp: now,
+      sender: profileName || "Admin"
+    };
+
+    try {
+      const docRef = await addDoc(collection(db, "announcements"), newAnnouncement);
+      const addedAnnouncement = { id: docRef.id, ...newAnnouncement };
+      setAnnouncements(prev => [addedAnnouncement, ...prev]);
+      
+      const newLog = {
+        timestamp: new Date().toISOString(),
+        level: "INFO",
+        message: `Admin broadcasted announcement: "${announcementTitle.trim()}" (${announcementType}).`
+      };
+      setAdminLogs([newLog, ...adminLogs]);
+      
+      triggerToast("Announcement broadcasted successfully!");
+      setAnnouncementTitle("");
+      setAnnouncementMessage("");
+    } catch (err) {
+      console.error("Failed to save announcement in Firestore:", err);
+      triggerToast("Failed to write to database. Simulating locally.");
+      const mockId = `mock-${Date.now()}`;
+      const addedAnnouncement = { id: mockId, ...newAnnouncement };
+      setAnnouncements(prev => [addedAnnouncement, ...prev]);
+      setAnnouncementTitle("");
+      setAnnouncementMessage("");
+    }
+  };
+
+  const handleDeleteAnnouncement = async (id) => {
+    if (!confirm("Are you sure you want to delete/recall this announcement?")) return;
+    try {
+      if (id.startsWith('mock-')) {
+        setAnnouncements(prev => prev.filter(a => a.id !== id));
+        triggerToast("Simulated announcement deleted.");
+        return;
+      }
+      await deleteDoc(doc(db, "announcements", id));
+      setAnnouncements(prev => prev.filter(a => a.id !== id));
+      
+      const newLog = {
+        timestamp: new Date().toISOString(),
+        level: "WARN",
+        message: `Admin deleted/recalled announcement ID: ${id}.`
+      };
+      setAdminLogs([newLog, ...adminLogs]);
+      
+      triggerToast("Announcement deleted successfully.");
+    } catch (err) {
+      console.error("Failed to delete announcement:", err);
+      triggerToast("Deletion failed. Removing locally.");
+      setAnnouncements(prev => prev.filter(a => a.id !== id));
+    }
+  };
+
   const renderSettingsView = () => {
     return (
       <div className="space-y-lg animate-in fade-in duration-200">
@@ -2895,6 +3392,31 @@ function UserDashboardContent() {
             </h3>
             
             <div className="space-y-sm">
+              <div className="flex flex-col sm:flex-row items-center gap-md pb-xs">
+                <div className="relative group cursor-pointer" onClick={() => setIsAvatarModalOpen(true)}>
+                  <img 
+                    src={profileAvatar} 
+                    alt="Current Avatar" 
+                    className="w-20 h-20 rounded-full border-2 border-primary/20 object-cover group-hover:border-primary transition-all shadow-sm"
+                  />
+                  <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="material-symbols-outlined text-white text-[20px]">edit</span>
+                  </div>
+                </div>
+                <div className="flex-1 text-center sm:text-left space-y-1">
+                  <h4 className="text-title-sm font-bold text-on-surface">Your Avatar</h4>
+                  <p className="text-label-md text-on-surface-variant font-medium">Select a technical developer avatar from our presets library.</p>
+                  <button 
+                    type="button"
+                    onClick={() => setIsAvatarModalOpen(true)}
+                    className="px-md py-1.5 border border-outline-variant/60 hover:border-primary text-primary hover:bg-primary/5 rounded-xl font-semibold text-label-md transition-all cursor-pointer inline-flex items-center gap-xs"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">image</span>
+                    Choose Avatar
+                  </button>
+                </div>
+              </div>
+
               <div className="space-y-xs">
                 <label className="text-label-sm font-bold text-on-surface-variant/90 uppercase block text-xs">Profile Display Name</label>
                 <input 
@@ -2904,17 +3426,20 @@ function UserDashboardContent() {
                   className="w-full bg-surface text-on-surface border border-outline-variant rounded-xl px-md py-sm text-body-md outline-none focus:border-primary transition-all font-semibold"
                 />
               </div>
+
               <div className="space-y-xs">
-                <label className="text-label-sm font-bold text-on-surface-variant/90 uppercase block text-xs">Simulated Avatar Image URL</label>
+                <label className="text-label-sm font-bold text-on-surface-variant/90 uppercase block text-xs">Current Avatar Asset URL / Reference</label>
                 <input 
                   type="text" 
                   value={profileAvatar}
-                  onChange={(e) => setProfileAvatar(e.target.value)}
-                  className="w-full bg-surface text-on-surface border border-outline-variant rounded-xl px-md py-sm text-body-md outline-none focus:border-primary transition-all text-xs font-mono"
+                  readOnly
+                  placeholder="No avatar selected"
+                  className="w-full bg-surface-container text-on-surface-variant border border-outline-variant/40 rounded-xl px-md py-sm text-xs font-mono outline-none cursor-not-allowed select-all"
                 />
               </div>
+
               <button 
-                onClick={() => triggerToast("Profile settings saved.")}
+                onClick={handleSaveProfile}
                 className="bg-primary text-on-primary px-lg py-sm rounded-xl font-semibold text-body-md hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer inline-block mt-xs"
               >
                 Save Profile
@@ -3095,6 +3620,303 @@ function UserDashboardContent() {
     );
   };
 
+  const handleOpenBlogModal = (post = null) => {
+    if (post) {
+      setEditingBlogPost(post);
+      setBlogTitle(post.title || '');
+      setBlogSubtitle(post.subtitle || '');
+      setBlogSlug(post.slug || '');
+      setBlogCoverImage(post.coverImage || '');
+      setBlogTags(Array.isArray(post.tags) ? post.tags.join(', ') : '');
+      setBlogStatus(post.status || 'draft');
+      setBlogContent(post.content || '');
+    } else {
+      setEditingBlogPost(null);
+      setBlogTitle('');
+      setBlogSubtitle('');
+      setBlogSlug('');
+      setBlogCoverImage('');
+      setBlogTags('');
+      setBlogStatus('draft');
+      setBlogContent('');
+    }
+    setIsBlogModalOpen(true);
+  };
+
+  const generateSlug = (text) => {
+    return text
+      .toString()
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, '-')           // Replace spaces with -
+      .replace(/[^\w\-]+/g, '')       // Remove all non-word chars
+      .replace(/\-\-+/g, '-')         // Replace multiple - with single -
+      .replace(/^-+/, '')             // Trim - from start
+      .replace(/-+$/, '');            // Trim - from end
+  };
+
+  const handleBlogTitleBlur = () => {
+    if (!blogSlug && blogTitle) {
+      setBlogSlug(generateSlug(blogTitle));
+    }
+  };
+
+  const handleSaveBlogPost = async (e) => {
+    e.preventDefault();
+    if (!blogTitle.trim()) {
+      triggerToast("Post title is required.");
+      return;
+    }
+    
+    const finalSlug = (blogSlug.trim() || generateSlug(blogTitle)).trim();
+    if (!finalSlug) {
+      triggerToast("A valid URL slug is required.");
+      return;
+    }
+
+    const isSlugTaken = blogPosts.some(p => p.slug === finalSlug && (!editingBlogPost || p.id !== editingBlogPost.id));
+    if (isSlugTaken) {
+      triggerToast("This slug is already taken. Please enter a unique slug.");
+      return;
+    }
+
+    const tagsArray = blogTags.split(',')
+      .map(t => t.trim())
+      .filter(t => t.length > 0);
+
+    const now = Date.now();
+    const blogData = {
+      title: blogTitle.trim(),
+      subtitle: blogSubtitle.trim(),
+      slug: finalSlug,
+      coverImage: blogCoverImage.trim() || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=80",
+      tags: tagsArray,
+      status: blogStatus,
+      content: blogContent,
+      authorName: profileName || "Alex Rivera",
+      authorAvatar: profileAvatar || "https://lh3.googleusercontent.com/aida-public/AB6AXuBkfa-3awNqRC3sNV8wK_I6ZdaEYXlAUsNCqbKtgilTWPlpWZ6HkmdshJLLwS_EufEl5K7EuvXWlhdPB_cxWzIkZkZwwpKjYPXsrRZ6KUwMlov_XTpaAZA1KR3tfGeAvbXnGHt8HpTM1FZVT8rmP14rV4fkJ_lrfvvFRia_AVBoxKKktEV_wlmFZiJjgjhOuchXugWQxragJD8D085z9VIQNConRHZVa0-zvQ8DIKDKOW6uLpnEedwL5Kf1d0A9ILFJDFDqndHkOjt0",
+      updatedTimestamp: now
+    };
+
+    try {
+      if (editingBlogPost) {
+        const docRef = doc(db, "blogs", editingBlogPost.id);
+        const updatePayload = {
+          ...blogData,
+          publishedTimestamp: blogStatus === 'published' 
+            ? (editingBlogPost.publishedTimestamp || now)
+            : null
+        };
+        await updateDoc(docRef, updatePayload);
+        setBlogPosts(prev => prev.map(p => p.id === editingBlogPost.id ? { ...p, ...updatePayload } : p));
+        triggerToast("Blog post updated successfully!");
+      } else {
+        const createPayload = {
+          ...blogData,
+          createdTimestamp: now,
+          publishedTimestamp: blogStatus === 'published' ? now : null,
+          createdBy: currentUser.uid
+        };
+        const docRef = await addDoc(collection(db, "blogs"), createPayload);
+        setBlogPosts(prev => [{ id: docRef.id, ...createPayload }, ...prev]);
+        triggerToast("Blog post created successfully!");
+      }
+      setIsBlogModalOpen(false);
+    } catch (err) {
+      console.error("Error saving blog post to Firestore:", err);
+      triggerToast("Failed to save post. Please try again.");
+    }
+  };
+
+  const handleDeleteBlogPost = async (id) => {
+    if (!confirm("Are you sure you want to delete this blog post?")) return;
+    try {
+      await deleteDoc(doc(db, "blogs", id));
+      setBlogPosts(prev => prev.filter(p => p.id !== id));
+      triggerToast("Blog post deleted successfully!");
+    } catch (err) {
+      console.error("Error deleting blog post:", err);
+      triggerToast("Failed to delete post.");
+    }
+  };
+
+  const handleToggleBlogPostStatus = async (post) => {
+    const newStatus = post.status === 'published' ? 'draft' : 'published';
+    const now = Date.now();
+    try {
+      const docRef = doc(db, "blogs", post.id);
+      const updatePayload = {
+        status: newStatus,
+        publishedTimestamp: newStatus === 'published' ? now : null
+      };
+      await updateDoc(docRef, updatePayload);
+      setBlogPosts(prev => prev.map(p => p.id === post.id ? { ...p, ...updatePayload } : p));
+      triggerToast(`Post status updated to ${newStatus}!`);
+    } catch (err) {
+      console.error("Error toggling post status:", err);
+      triggerToast("Failed to toggle status.");
+    }
+  };
+
+  const renderBlogCMSView = () => {
+    const filteredBlogs = blogPosts.filter(post => {
+      const matchesSearch = post.title.toLowerCase().includes(blogSearch.toLowerCase()) ||
+                            (post.subtitle && post.subtitle.toLowerCase().includes(blogSearch.toLowerCase())) ||
+                            post.tags.some(tag => tag.toLowerCase().includes(blogSearch.toLowerCase()));
+      const matchesStatus = blogStatusFilter === 'All' || post.status === blogStatusFilter.toLowerCase();
+      return matchesSearch && matchesStatus;
+    });
+
+    return (
+      <div className="space-y-lg animate-in fade-in duration-200">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-md border-b border-outline-variant/20 pb-md">
+          <div>
+            <h2 className="text-headline-lg font-bold text-on-surface flex items-center gap-sm">
+              <span className="material-symbols-outlined text-primary text-[32px]">article</span>
+              Blog CMS Workspace
+            </h2>
+            <p className="text-body-md text-on-surface-variant mt-1">
+              Create, edit, and publish content marketing articles and tutorials for the public Blog.
+            </p>
+          </div>
+          <button
+            onClick={() => handleOpenBlogModal()}
+            className="bg-primary text-on-primary px-xl py-md rounded-xl font-semibold text-body-md hover:shadow-lg hover:shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-sm cursor-pointer border-none"
+          >
+            <span className="material-symbols-outlined">add_circle</span>
+            Create New Post
+          </button>
+        </div>
+
+        {/* Toolbar: Search and Filter */}
+        <div className="flex flex-col sm:flex-row gap-md justify-between items-center bg-surface-container-lowest border border-outline-variant/20 p-md rounded-xl">
+          <div className="relative w-full sm:max-w-md">
+            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span>
+            <input
+              type="text"
+              value={blogSearch}
+              onChange={(e) => setBlogSearch(e.target.value)}
+              className="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl pl-10 pr-4 py-2 text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+              placeholder="Search posts by title, summary, or tag..."
+            />
+          </div>
+          <div className="flex items-center gap-sm w-full sm:w-auto overflow-x-auto">
+            <span className="text-label-md font-bold text-on-surface-variant/70 shrink-0">Filter Status:</span>
+            {['All', 'Published', 'Draft'].map(status => (
+              <button
+                key={status}
+                onClick={() => setBlogStatusFilter(status)}
+                className={`px-md py-1.5 rounded-lg text-label-md font-semibold transition-all cursor-pointer border ${
+                  blogStatusFilter === status
+                    ? 'bg-primary/10 text-primary border-primary/20'
+                    : 'bg-surface-container-low border-transparent text-on-surface-variant hover:bg-surface-container-high'
+                }`}
+              >
+                {status}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Blog Post List */}
+        {isLoadingBlogs ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-md">
+            <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+            <p className="text-body-md font-bold text-on-surface-variant/80">Loading posts...</p>
+          </div>
+        ) : filteredBlogs.length === 0 ? (
+          <div className="bg-surface-container-lowest border border-outline-variant/20 rounded-2xl p-20 text-center space-y-md">
+            <span className="material-symbols-outlined text-outline text-[48px]">description</span>
+            <h4 className="text-title-md font-bold text-on-surface">No Blog Posts Found</h4>
+            <p className="text-body-md text-on-surface-variant max-w-md mx-auto">
+              Get started by creating your first post or adjust your filters to find existing records.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-md">
+            {filteredBlogs.map(post => (
+              <div
+                key={post.id}
+                className="bg-surface-container-lowest border border-outline-variant/20 hover:border-outline hover:shadow-xl hover:shadow-primary/5 p-lg rounded-xl transition-all flex flex-col md:flex-row gap-lg items-start md:items-center"
+              >
+                <img
+                  src={post.coverImage}
+                  alt={post.title}
+                  className="w-full md:w-32 h-20 rounded-lg object-cover border border-outline-variant/20 shrink-0"
+                />
+                <div className="flex-1 space-y-xs min-w-0">
+                  <div className="flex items-center gap-sm flex-wrap">
+                    <span className={`px-sm py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                      post.status === 'published'
+                        ? 'bg-success-container/10 text-success border border-success/20'
+                        : 'bg-surface-container-high text-on-surface-variant border border-outline-variant/30'
+                    }`}>
+                      {post.status}
+                    </span>
+                    {post.tags.map(tag => (
+                      <span key={tag} className="bg-secondary-container/10 text-secondary px-sm py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                  <h3 className="text-title-md font-bold text-on-surface truncate">{post.title}</h3>
+                  <p className="text-body-md font-medium text-on-surface-variant line-clamp-1">{post.subtitle}</p>
+                  <div className="flex items-center gap-sm text-[12px] text-on-surface-variant/70">
+                    <span>By {post.authorName}</span>
+                    <span>•</span>
+                    <span>
+                      {new Date(post.createdTimestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </span>
+                  </div>
+                </div>
+                
+                {/* Actions */}
+                <div className="flex items-center gap-sm w-full md:w-auto justify-end border-t md:border-t-0 border-outline-variant/20 pt-md md:pt-0 shrink-0">
+                  <a
+                    href={`/blog/${post.slug}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 text-on-surface-variant hover:text-primary hover:bg-primary/5 rounded-lg border border-transparent hover:border-primary/20 transition-all flex items-center justify-center font-semibold"
+                    title="View Post Live"
+                  >
+                    <span className="material-symbols-outlined text-[20px]">visibility</span>
+                  </a>
+                  <button
+                    onClick={() => handleToggleBlogPostStatus(post)}
+                    className={`p-2 rounded-lg border border-transparent transition-all flex items-center justify-center cursor-pointer ${
+                      post.status === 'published'
+                        ? 'text-success hover:bg-success/5 hover:border-success/20'
+                        : 'text-on-surface-variant hover:bg-surface-container-high hover:border-outline-variant'
+                    }`}
+                    title={post.status === 'published' ? "Revert to Draft" : "Publish Live"}
+                  >
+                    <span className="material-symbols-outlined text-[20px]">
+                      {post.status === 'published' ? 'publish' : 'unpublished'}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => handleOpenBlogModal(post)}
+                    className="p-2 text-on-surface-variant hover:text-primary hover:bg-primary/5 rounded-lg border border-transparent hover:border-primary/20 transition-all flex items-center justify-center cursor-pointer"
+                    title="Edit Post"
+                  >
+                    <span className="material-symbols-outlined text-[20px]">edit</span>
+                  </button>
+                  <button
+                    onClick={() => handleDeleteBlogPost(post.id)}
+                    className="p-2 text-error hover:bg-error-container/15 rounded-lg border border-transparent hover:border-error/20 transition-all flex items-center justify-center cursor-pointer"
+                    title="Delete Post"
+                  >
+                    <span className="material-symbols-outlined text-[20px]">delete</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   if (authLoading) {
     return (
       <div className="bg-background text-on-background min-h-screen flex flex-col items-center justify-center font-sans gap-md">
@@ -3169,6 +3991,17 @@ function UserDashboardContent() {
                 Admin Logs
               </button>
             )}
+            {userRole === 'ADMIN' && (
+              <button 
+                onClick={() => setActiveTab('Blog CMS')}
+                className={`w-full flex items-center gap-md px-md py-xs transition-all font-semibold text-label-md cursor-pointer hover:bg-surface-container-high rounded-lg text-left ${
+                  activeTab === 'Blog CMS' ? 'bg-primary-container/10 text-primary font-bold border-l-4 border-primary pl-2' : 'text-on-surface-variant hover:text-on-surface border-l-4 border-transparent'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[18px]">article</span>
+                Blog CMS
+              </button>
+            )}
             <button 
               onClick={handleSignOut}
               className="w-full flex items-center gap-md px-md py-xs transition-all font-semibold text-label-md cursor-pointer hover:bg-error-container/10 rounded-lg text-left text-error hover:text-error/80 border-l-4 border-transparent"
@@ -3203,13 +4036,84 @@ function UserDashboardContent() {
 
             {/* Top Bar actions */}
             <div className="flex items-center gap-md ml-lg">
-              <button 
-                onClick={() => triggerToast("No new notifications")}
-                className="p-2 rounded-full hover:bg-surface-container-high relative text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
-              >
-                <span className="material-symbols-outlined text-[22px]">notifications</span>
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-error rounded-full border-2 border-surface"></span>
-              </button>
+              <div className="relative">
+                <button 
+                  onClick={() => setIsNotificationsDropdownOpen(!isNotificationsDropdownOpen)}
+                  className="p-2 rounded-full hover:bg-surface-container-high relative text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
+                >
+                  <span className="material-symbols-outlined text-[22px]">notifications</span>
+                  {announcements.filter(a => !readAnnouncements.includes(a.id)).length > 0 && (
+                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-error rounded-full border-2 border-surface"></span>
+                  )}
+                </button>
+                
+                {isNotificationsDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setIsNotificationsDropdownOpen(false)} />
+                    <div className="absolute right-0 mt-2 w-80 bg-surface-container-lowest border border-outline-variant/40 rounded-xl shadow-xl z-50 animate-in fade-in slide-in-from-top-2 duration-150 py-sm">
+                      <div className="px-md py-xs border-b border-outline-variant/20 flex justify-between items-center bg-surface-container-low/20">
+                        <span className="text-label-md font-bold text-on-surface uppercase tracking-wider text-xs">Notifications</span>
+                        {announcements.filter(a => !readAnnouncements.includes(a.id)).length > 0 && (
+                          <button 
+                            onClick={handleMarkAllAnnouncementsRead}
+                            className="text-primary text-[10px] font-bold hover:underline cursor-pointer border-none bg-transparent"
+                          >
+                            Mark all as read
+                          </button>
+                        )}
+                      </div>
+                      <div className="max-h-[300px] overflow-y-auto divide-y divide-outline-variant/10">
+                        {announcements.length === 0 ? (
+                          <div className="px-md py-lg text-center text-on-surface-variant font-medium text-body-sm">
+                            No notifications or announcements.
+                          </div>
+                        ) : (
+                          announcements.map(ann => {
+                            const isUnread = !readAnnouncements.includes(ann.id);
+                            const typeIcons = {
+                              info: 'info',
+                              warning: 'warning',
+                              success: 'check_circle',
+                              critical: 'campaign'
+                            };
+                            const typeColors = {
+                              info: 'text-primary bg-primary/10',
+                              warning: 'text-amber-500 bg-amber-500/10',
+                              success: 'text-success bg-success/10',
+                              critical: 'text-error bg-error/10'
+                            };
+                            return (
+                              <div 
+                                key={ann.id} 
+                                onClick={() => {
+                                  handleMarkAnnouncementRead(ann.id);
+                                }}
+                                className={`px-md py-sm flex gap-sm cursor-pointer hover:bg-surface-container transition-colors relative ${
+                                  isUnread ? 'bg-primary/5' : ''
+                                }`}
+                              >
+                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${typeColors[ann.type] || typeColors.info}`}>
+                                  <span className="material-symbols-outlined text-[18px]">{typeIcons[ann.type] || 'info'}</span>
+                                </div>
+                                <div className="flex-grow min-w-0">
+                                  <div className="flex justify-between items-start gap-xs">
+                                    <p className={`text-body-sm truncate ${isUnread ? 'font-bold text-on-surface' : 'font-semibold text-on-surface-variant'}`}>{ann.title}</p>
+                                    {isUnread && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0 mt-1.5"></span>}
+                                  </div>
+                                  <p className="text-label-sm text-on-surface-variant/80 line-clamp-2 mt-0.5 font-medium leading-normal">{ann.message}</p>
+                                  <span className="text-[9px] text-outline font-extrabold uppercase mt-1 block tracking-wider">
+                                    {new Date(ann.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} at {new Date(ann.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
               <div className="flex items-center gap-sm cursor-pointer hover:opacity-8 transition-opacity border-l border-outline-variant/30 pl-md">
                 <img 
                   alt="Avatar" 
@@ -3233,6 +4137,7 @@ function UserDashboardContent() {
         <div className="p-lg lg:p-xl space-y-lg max-w-7xl mx-auto w-full flex-grow">
           
           {activeTab === 'Admin Logs' && renderAdminLogsView()}
+          {activeTab === 'Blog CMS' && renderBlogCMSView()}
           {activeTab === 'Dashboard' && renderDashboardView()}
           {activeTab === 'Library' && renderLibraryView()}
           {activeTab === 'Collections' && renderCollectionsView()}
@@ -4110,6 +5015,266 @@ function UserDashboardContent() {
               >
                 <span className="material-symbols-outlined text-[16px]">download</span>
                 Download File
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BLOG CMS CREATE/EDIT POST MODAL */}
+      {isBlogModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-lg">
+          <div className="bg-surface-container-lowest border border-outline-variant/40 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="px-lg py-md border-b border-outline-variant/30 flex justify-between items-center bg-surface-container-low/40 shrink-0">
+              <h3 className="text-title-md font-bold text-on-surface">
+                {editingBlogPost ? "Edit Blog Post" : "Create New Blog Post"}
+              </h3>
+              <button 
+                onClick={() => setIsBlogModalOpen(false)}
+                className="text-on-surface-variant hover:text-on-surface p-1 rounded-lg hover:bg-surface-container-high transition-colors cursor-pointer border-none bg-transparent"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveBlogPost} className="flex flex-col flex-1 min-h-0">
+              <div className="p-lg space-y-md overflow-y-auto flex-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-md">
+                  <div className="space-y-xs">
+                    <label className="text-label-md font-bold text-on-surface-variant text-xs uppercase block">Title</label>
+                    <input 
+                      type="text" 
+                      value={blogTitle}
+                      onChange={(e) => setBlogTitle(e.target.value)}
+                      onBlur={handleBlogTitleBlur}
+                      placeholder="e.g. Unlocking Reasoning in DeepSeek models"
+                      className="w-full bg-surface text-body-md border border-outline-variant rounded-xl px-md py-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-xs">
+                    <label className="text-label-md font-bold text-on-surface-variant text-xs uppercase block">URL Slug</label>
+                    <input 
+                      type="text" 
+                      value={blogSlug}
+                      onChange={(e) => setBlogSlug(e.target.value)}
+                      placeholder="e.g. unlocking-deepseek-reasoning"
+                      className="w-full bg-surface text-body-md border border-outline-variant rounded-xl px-md py-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-xs">
+                  <label className="text-label-md font-bold text-on-surface-variant text-xs uppercase block">Subtitle / Summary</label>
+                  <input 
+                    type="text" 
+                    value={blogSubtitle}
+                    onChange={(e) => setBlogSubtitle(e.target.value)}
+                    placeholder="Provide a brief hook for cards and search indexes..."
+                    className="w-full bg-surface text-body-md border border-outline-variant rounded-xl px-md py-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-md">
+                  <div className="space-y-xs">
+                    <label className="text-label-md font-bold text-on-surface-variant text-xs uppercase block">Cover Image URL</label>
+                    <input 
+                      type="text" 
+                      value={blogCoverImage}
+                      onChange={(e) => setBlogCoverImage(e.target.value)}
+                      placeholder="https://images.unsplash.com/photo-..."
+                      className="w-full bg-surface text-body-md border border-outline-variant rounded-xl px-md py-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+                    />
+                    <div className="flex flex-wrap gap-xs pt-xs">
+                      <span className="text-[10px] font-bold text-on-surface-variant/70 mr-1 flex items-center">Preset:</span>
+                      {[
+                        { label: "Tech 3D", url: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=80" },
+                        { label: "Neural Network", url: "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?auto=format&fit=crop&w=1200&q=80" },
+                        { label: "Crypto Grid", url: "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&w=1200&q=80" }
+                      ].map(preset => (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => setBlogCoverImage(preset.url)}
+                          className="bg-surface-container-low hover:bg-surface-container-high border border-outline-variant/30 text-[10px] font-bold px-sm py-1 rounded text-primary transition-all cursor-pointer"
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-md">
+                    <div className="space-y-xs">
+                      <label className="text-label-md font-bold text-on-surface-variant text-xs uppercase block">Tags (comma separated)</label>
+                      <input 
+                        type="text" 
+                        value={blogTags}
+                        onChange={(e) => setBlogTags(e.target.value)}
+                        placeholder="DeepSeek, Prompting, AI"
+                        className="w-full bg-surface text-body-md border border-outline-variant rounded-xl px-md py-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+                      />
+                    </div>
+
+                    <div className="space-y-xs">
+                      <label className="text-label-md font-bold text-on-surface-variant text-xs uppercase block">Status</label>
+                      <select 
+                        value={blogStatus}
+                        onChange={(e) => setBlogStatus(e.target.value)}
+                        className="w-full bg-surface text-body-md border border-outline-variant rounded-xl px-md py-[11px] focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all border-outline"
+                      >
+                        <option value="draft">Draft</option>
+                        <option value="published">Published</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-xs">
+                  <label className="text-label-md font-bold text-on-surface-variant text-xs uppercase block">Content (Markdown compatible)</label>
+                  <textarea 
+                    value={blogContent}
+                    onChange={(e) => setBlogContent(e.target.value)}
+                    placeholder="Write your blog post in Markdown format here..."
+                    className="w-full h-80 bg-surface text-body-md font-mono border border-outline-variant rounded-xl px-md py-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all resize-y"
+                    required
+                  ></textarea>
+                </div>
+              </div>
+
+              <div className="px-lg py-md border-t border-outline-variant/30 bg-surface-container-low/40 flex justify-end gap-sm shrink-0">
+                <button 
+                  type="button"
+                  onClick={() => setIsBlogModalOpen(false)}
+                  className="px-lg py-sm border border-outline-variant rounded-xl text-label-md font-bold hover:bg-surface-container-high transition-all cursor-pointer bg-transparent"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="px-lg py-sm bg-primary text-on-primary rounded-xl text-label-md font-bold hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer border-none"
+                >
+                  Save Post
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* SELECT AVATAR MODAL */}
+      {isAvatarModalOpen && (
+        <div className="fixed inset-0 z-55 flex items-center justify-center bg-black/60 backdrop-blur-sm p-lg">
+          <div className="bg-surface-container-lowest border border-outline-variant/40 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="px-lg py-md border-b border-outline-variant/30 flex justify-between items-center bg-surface-container-low/40 shrink-0">
+              <div>
+                <h3 className="text-title-md font-bold text-on-surface flex items-center gap-xs">
+                  <span className="material-symbols-outlined text-primary text-[20px]">account_box</span>
+                  Choose Your Profile Avatar
+                </h3>
+                <p className="text-body-sm text-on-surface-variant mt-0.5">Select a developer-centric avatar preset for your profile.</p>
+              </div>
+              <button 
+                onClick={() => setIsAvatarModalOpen(false)}
+                className="text-on-surface-variant hover:text-on-surface p-1.5 rounded-lg hover:bg-surface-container-high transition-colors cursor-pointer border-none bg-transparent"
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            {/* Search filter bar */}
+            <div className="p-md border-b border-outline-variant/20 bg-surface-container-low/20 shrink-0">
+              <div className="relative">
+                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[18px]">search</span>
+                <input
+                  type="text"
+                  value={avatarSearchQuery}
+                  onChange={(e) => setAvatarSearchQuery(e.target.value)}
+                  className="w-full bg-surface border border-outline-variant rounded-xl pl-10 pr-4 py-2 text-body-md focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+                  placeholder="Filter avatars (e.g. 05, 12, or search from 1 to 100)..."
+                />
+              </div>
+            </div>
+
+            {/* Avatars Grid */}
+            <div className="p-lg overflow-y-auto flex-1 bg-surface-container-lowest/50">
+              {(() => {
+                const totalAvatars = 100;
+                const filteredAvatars = Array.from({ length: totalAvatars }, (_, i) => {
+                  const numStr = String(i + 1).padStart(3, '0');
+                  const filename = `avatar_${numStr}.png`;
+                  const url = `/avatar/${filename}`;
+                  return { id: i + 1, name: `Avatar ${i + 1}`, filename, url };
+                }).filter(avatar => {
+                  const query = avatarSearchQuery.toLowerCase().trim();
+                  if (!query) return true;
+                  return avatar.id.toString().includes(query) || 
+                         avatar.name.toLowerCase().includes(query) ||
+                         avatar.filename.toLowerCase().includes(query);
+                });
+
+                if (filteredAvatars.length === 0) {
+                  return (
+                    <div className="flex flex-col items-center justify-center py-10 gap-md text-center">
+                      <span className="material-symbols-outlined text-outline text-[40px]">search_off</span>
+                      <p className="text-title-sm font-bold text-on-surface-variant">No avatars match your search.</p>
+                      <button 
+                        onClick={() => setAvatarSearchQuery("")}
+                        className="text-primary text-label-md font-bold hover:underline cursor-pointer"
+                      >
+                        Clear search filter
+                      </button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-7 gap-md">
+                    {filteredAvatars.map(avatar => {
+                      const isSelected = profileAvatar === avatar.url;
+                      return (
+                        <button
+                          key={avatar.id}
+                          type="button"
+                          onClick={() => setProfileAvatar(avatar.url)}
+                          className={`relative group p-xs border rounded-2xl transition-all cursor-pointer flex flex-col items-center justify-center gap-xs ${
+                            isSelected 
+                              ? 'border-primary bg-primary/5 ring-2 ring-primary/20 scale-102' 
+                              : 'border-outline-variant/30 hover:border-primary/50 hover:bg-surface-container-high/40 hover:scale-102'
+                          }`}
+                        >
+                          <img 
+                            src={avatar.url} 
+                            alt={avatar.name} 
+                            className="w-16 h-16 rounded-xl object-cover bg-surface-container-high transition-transform duration-200"
+                          />
+                          <span className="text-[10px] font-bold text-on-surface-variant select-none">#{avatar.id}</span>
+                          
+                          {isSelected && (
+                            <div className="absolute top-1 right-1 bg-primary text-on-primary rounded-full p-0.5 shadow-md flex items-center justify-center">
+                              <span className="material-symbols-outlined text-[10px] font-bold">check</span>
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Footer */}
+            <div className="px-lg py-md border-t border-outline-variant/30 bg-surface-container-low/40 flex justify-end gap-sm shrink-0">
+              <button 
+                type="button"
+                onClick={() => setIsAvatarModalOpen(false)}
+                className="px-lg py-sm bg-primary text-on-primary rounded-xl text-label-md font-bold hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer border-none"
+              >
+                Close &amp; Keep Selection
               </button>
             </div>
           </div>

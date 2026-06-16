@@ -163,6 +163,9 @@ export default function LandingPage() {
             <a className="text-label-md font-semibold text-on-surface-variant hover:text-primary transition-colors" href="#pricing">
               Pricing
             </a>
+            <Link className="text-label-md font-semibold text-on-surface-variant hover:text-primary transition-colors" href="/blog">
+              Blog
+            </Link>
             <a className="text-label-md font-semibold text-on-surface-variant hover:text-primary transition-colors" href="#faq">
               Docs
             </a>
@@ -576,6 +579,7 @@ export default function LandingPage() {
             <p className="text-body-md text-on-surface-variant/80 font-medium">© 2026 Online Prompt Library. Built for high-utility SaaS.</p>
           </div>
           <div className="flex gap-lg">
+            <Link className="text-label-md font-semibold text-on-surface-variant hover:text-primary transition-colors" href="/blog">Blog</Link>
             <Link className="text-label-md font-semibold text-on-surface-variant hover:text-primary transition-colors" href="/terms">Terms</Link>
             <Link className="text-label-md font-semibold text-on-surface-variant hover:text-primary transition-colors" href="/privacy">Privacy</Link>
           </div>
