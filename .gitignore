@@ -43,3 +43,7 @@ next-env.d.ts
 # local agent skill files and scratch files
 .agents/
 scratch_test.mjs
+
+# uploaded media
+/public/uploads/
+

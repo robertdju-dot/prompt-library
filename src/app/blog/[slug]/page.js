@@ -59,9 +59,18 @@ export default function BlogPostPage({ params }) {
   const [user, setUser] = useState(null);
   const [post, setPost] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
   
   // Theme state
   const [themeMode, setThemeMode] = useState('light');
+
+  const handleCopyLink = () => {
+    if (typeof window !== 'undefined') {
+      navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   // Monitor scroll for navbar styles
   useEffect(() => {
@@ -256,20 +265,39 @@ export default function BlogPostPage({ params }) {
                 {post.subtitle}
               </p>
 
-              {/* Author details block */}
-              <div className="flex items-center gap-sm pt-sm">
-                <img
-                  src={post.authorAvatar}
-                  alt={post.authorName}
-                  className="w-10 h-10 rounded-full object-cover border border-primary/20"
-                />
-                <div>
-                  <span className="block font-bold text-on-surface text-body-md">
-                    {post.authorName}
+              {/* Author details block & shareable URL */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-md border-b border-outline-variant/20 pb-md">
+                <div className="flex items-center gap-sm">
+                  <img
+                    src={post.authorAvatar}
+                    alt={post.authorName}
+                    className="w-10 h-10 rounded-full object-cover border border-primary/20"
+                  />
+                  <div>
+                    <span className="block font-bold text-on-surface text-body-md">
+                      {post.authorName}
+                    </span>
+                    <span className="block text-on-surface-variant/70 text-xs font-semibold">
+                      Published: {new Date(post.createdTimestamp).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Shareable URL Block */}
+                <div className="flex items-center gap-sm bg-surface-container-low border border-outline-variant/30 rounded-xl px-md py-sm max-w-full sm:max-w-md shadow-sm">
+                  <span className="material-symbols-outlined text-[18px] text-primary shrink-0">link</span>
+                  <span className="text-label-sm font-mono truncate text-on-surface-variant select-all" style={{ direction: 'rtl', textAlign: 'left' }}>
+                    {typeof window !== 'undefined' ? window.location.href : `/blog/${post.slug}`}
                   </span>
-                  <span className="block text-on-surface-variant/70 text-xs font-semibold">
-                    Published: {new Date(post.createdTimestamp).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-                  </span>
+                  <button
+                    onClick={handleCopyLink}
+                    className="p-1 hover:text-primary hover:bg-surface-container-high rounded transition-all cursor-pointer border-none bg-transparent flex items-center justify-center shrink-0"
+                    title="Copy Article URL"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">
+                      {copied ? 'check' : 'content_copy'}
+                    </span>
+                  </button>
                 </div>
               </div>
             </div>

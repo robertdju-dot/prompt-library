@@ -418,7 +418,7 @@ export default function LandingPage() {
                 <img 
                   className="rounded-xl shadow-xl w-full border border-outline-variant/30" 
                   alt="Futuristic abstract tech rendering"
-                  src="https://onlinepromptlibrary.com/promptlib1.jpeg" 
+                  src="/promptlib1.jpeg" 
                 />
               </div>
             </div>

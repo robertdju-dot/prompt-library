@@ -268,6 +268,8 @@ function UserDashboardContent() {
   const [blogTags, setBlogTags] = useState('');
   const [blogStatus, setBlogStatus] = useState('draft');
   const [blogContent, setBlogContent] = useState('');
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
 
   const hasPremiumAccess = () => {
     if (userRole === 'ADMIN') return true;
@@ -3620,6 +3622,50 @@ Building a Prompt-as-a-Service wrapper requires structuring templates where inpu
     );
   };
 
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      triggerToast("Only image files are allowed.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      triggerToast("Image size must be less than 5MB.");
+      return;
+    }
+
+    setIsUploadingImage(true);
+    setUploadError(null);
+    triggerToast("Uploading image...");
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (res.ok && data.url) {
+        setBlogCoverImage(data.url);
+        triggerToast("Image uploaded successfully!");
+      } else {
+        setUploadError(data.error || "Upload failed");
+        triggerToast(`Upload failed: ${data.error || "unknown error"}`);
+      }
+    } catch (err) {
+      console.error("Image upload failed:", err);
+      setUploadError("Network error during upload");
+      triggerToast("Network error. Upload failed.");
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
   const handleOpenBlogModal = (post = null) => {
     if (post) {
       setEditingBlogPost(post);
@@ -3861,11 +3907,15 @@ Building a Prompt-as-a-Service wrapper requires structuring templates where inpu
                   </div>
                   <h3 className="text-title-md font-bold text-on-surface truncate">{post.title}</h3>
                   <p className="text-body-md font-medium text-on-surface-variant line-clamp-1">{post.subtitle}</p>
-                  <div className="flex items-center gap-sm text-[12px] text-on-surface-variant/70">
+                  <div className="flex items-center gap-sm flex-wrap text-[12px] text-on-surface-variant/70">
                     <span>By {post.authorName}</span>
                     <span>•</span>
                     <span>
                       {new Date(post.createdTimestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </span>
+                    <span>•</span>
+                    <span className="font-mono text-primary bg-primary/5 px-1.5 py-0.5 rounded text-[11px] border border-primary/10">
+                      /blog/{post.slug}
                     </span>
                   </div>
                 </div>
@@ -5080,14 +5130,65 @@ Building a Prompt-as-a-Service wrapper requires structuring templates where inpu
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-md">
                   <div className="space-y-xs">
-                    <label className="text-label-md font-bold text-on-surface-variant text-xs uppercase block">Cover Image URL</label>
-                    <input 
-                      type="text" 
-                      value={blogCoverImage}
-                      onChange={(e) => setBlogCoverImage(e.target.value)}
-                      placeholder="https://images.unsplash.com/photo-..."
-                      className="w-full bg-surface text-body-md border border-outline-variant rounded-xl px-md py-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
-                    />
+                    <label className="text-label-md font-bold text-on-surface-variant text-xs uppercase block">Cover Image</label>
+                    {blogCoverImage ? (
+                      <div className="relative rounded-xl overflow-hidden border border-outline-variant/30 h-40 bg-surface-container-low group/img">
+                        <img 
+                          src={blogCoverImage} 
+                          alt="Cover preview" 
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-md">
+                          <button
+                            type="button"
+                            onClick={() => setBlogCoverImage('')}
+                            className="bg-error text-on-error p-2 rounded-full hover:scale-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center shadow-lg border-none"
+                            title="Remove Cover Image"
+                          >
+                            <span className="material-symbols-outlined text-[20px]">delete</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="border-2 border-dashed border-outline-variant/60 rounded-xl p-lg text-center flex flex-col items-center justify-center gap-sm bg-surface hover:bg-surface-container-low/30 hover:border-primary/50 transition-all relative min-h-[160px]">
+                        {isUploadingImage ? (
+                          <div className="flex flex-col items-center gap-sm">
+                            <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+                            <span className="text-label-md font-bold text-primary animate-pulse">Uploading cover image...</span>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="material-symbols-outlined text-outline text-[40px]">add_photo_alternate</span>
+                            <div className="text-body-md font-semibold text-on-surface">
+                              Upload Cover Image
+                            </div>
+                            <p className="text-label-sm text-on-surface-variant/80">Drag and drop or click to choose an image (PNG, JPG, WebP)</p>
+                            <input 
+                              type="file" 
+                              accept="image/*"
+                              disabled={isUploadingImage}
+                              onChange={handleImageUpload}
+                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                            />
+                          </>
+                        )}
+                      </div>
+                    )}
+                    {uploadError && (
+                      <div className="text-error text-xs font-semibold mt-1">
+                        {uploadError}
+                      </div>
+                    )}
+                    <div className="mt-sm flex gap-sm items-center">
+                      <span className="text-[11px] font-bold text-on-surface-variant/70 uppercase">Or URL:</span>
+                      <input 
+                        type="text" 
+                        value={blogCoverImage}
+                        onChange={(e) => setBlogCoverImage(e.target.value)}
+                        placeholder="Paste image URL here..."
+                        className="flex-grow bg-surface text-xs border border-outline-variant rounded-lg px-sm py-1.5 focus:ring-1 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+                      />
+                    </div>
                     <div className="flex flex-wrap gap-xs pt-xs">
                       <span className="text-[10px] font-bold text-on-surface-variant/70 mr-1 flex items-center">Preset:</span>
                       {[
@@ -5155,9 +5256,10 @@ Building a Prompt-as-a-Service wrapper requires structuring templates where inpu
                 </button>
                 <button 
                   type="submit"
-                  className="px-lg py-sm bg-primary text-on-primary rounded-xl text-label-md font-bold hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer border-none"
+                  disabled={isUploadingImage}
+                  className="px-lg py-sm bg-primary text-on-primary rounded-xl text-label-md font-bold hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer border-none disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Save Post
+                  {isUploadingImage ? "Uploading..." : "Save Post"}
                 </button>
               </div>
             </form>
