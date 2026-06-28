@@ -829,6 +829,7 @@ function UserDashboardContent() {
   const [formTemplate, setFormTemplate] = useState('');
   const [formIsShared, setFormIsShared] = useState(false);
   const [formCollectionId, setFormCollectionId] = useState("");
+  const [isSuggesting, setIsSuggesting] = useState(false);
 
 
 
@@ -1141,6 +1142,46 @@ Building a Prompt-as-a-Service wrapper requires structuring templates where inpu
   const triggerToast = (msg) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  // Suggest description and tags using API
+  const handleSuggestInfo = async () => {
+    if (!formTemplate.trim() && !formTitle.trim()) {
+      triggerToast("Please enter a Prompt Name or Instructions first.");
+      return;
+    }
+
+    setIsSuggesting(true);
+    try {
+      const response = await fetch('/api/prompts/suggest', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title: formTitle,
+          template: formTemplate
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate suggestions');
+      }
+
+      if (data.description) {
+        setFormSubtitle(data.description);
+      }
+      if (data.tags && Array.isArray(data.tags)) {
+        setFormTags(data.tags.join(', '));
+      }
+      triggerToast("Suggestions generated!");
+    } catch (err) {
+      console.error("AI Suggestion Error:", err);
+      triggerToast(err.message || "Failed to suggest info.");
+    } finally {
+      setIsSuggesting(false);
+    }
   };
 
   // Open modal for adding a new prompt
@@ -4603,7 +4644,27 @@ Building a Prompt-as-a-Service wrapper requires structuring templates where inpu
                 </div>
 
                 <div className="space-y-xs">
-                  <label className="text-label-md font-bold text-on-surface-variant text-xs uppercase block">Short Subtitle / Goal</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-label-md font-bold text-on-surface-variant text-xs uppercase block">Short Subtitle / Goal</label>
+                    <button
+                      type="button"
+                      onClick={handleSuggestInfo}
+                      disabled={isSuggesting}
+                      className="text-primary hover:text-primary-hover text-xs font-semibold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    >
+                      {isSuggesting ? (
+                        <>
+                          <span className="animate-spin material-symbols-outlined text-sm">sync</span>
+                          Suggesting...
+                        </>
+                      ) : (
+                        <>
+                          <span className="material-symbols-outlined text-sm">magic_button</span>
+                          Suggest via AI
+                        </>
+                      )}
+                    </button>
+                  </div>
                   <input 
                     type="text" 
                     value={formSubtitle}
@@ -4739,7 +4800,27 @@ Building a Prompt-as-a-Service wrapper requires structuring templates where inpu
                 </div>
 
                 <div className="space-y-xs">
-                  <label className="text-label-md font-bold text-on-surface-variant text-xs uppercase block">Short Subtitle / Goal</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-label-md font-bold text-on-surface-variant text-xs uppercase block">Short Subtitle / Goal</label>
+                    <button
+                      type="button"
+                      onClick={handleSuggestInfo}
+                      disabled={isSuggesting}
+                      className="text-primary hover:text-primary-hover text-xs font-semibold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    >
+                      {isSuggesting ? (
+                        <>
+                          <span className="animate-spin material-symbols-outlined text-sm">sync</span>
+                          Suggesting...
+                        </>
+                      ) : (
+                        <>
+                          <span className="material-symbols-outlined text-sm">magic_button</span>
+                          Suggest via AI
+                        </>
+                      )}
+                    </button>
+                  </div>
                   <input 
                     type="text" 
                     value={formSubtitle}
